@@ -89,6 +89,50 @@ impl Grid {
         (0..self.columns).any(|col| self.get(row, col).is_some())
     }
 
+    /// Shift all events in a voice column by `offset` steps (wrapping).
+    pub fn shift_voice(&mut self, col: u32, offset: i32) {
+        let n = self.rows as i32;
+        if n == 0 {
+            return;
+        }
+        let old: Vec<Option<NoteEvent>> =
+            (0..self.rows).map(|r| self.get(r, col).cloned()).collect();
+        for row in 0..self.rows {
+            let src = (row as i32 - offset).rem_euclid(n) as u32;
+            self.set(row, col, old[src as usize].clone());
+        }
+    }
+
+    /// Reverse the order of events in a voice column.
+    pub fn reverse_voice(&mut self, col: u32) {
+        let n = self.rows;
+        for i in 0..n / 2 {
+            let j = n - 1 - i;
+            let a = self.get(i, col).cloned();
+            let b = self.get(j, col).cloned();
+            self.set(i, col, b);
+            self.set(j, col, a);
+        }
+    }
+
+    /// Clear all events in a voice column.
+    pub fn clear_voice(&mut self, col: u32) {
+        for row in 0..self.rows {
+            self.set(row, col, None);
+        }
+    }
+
+    /// Fill a voice column from a Euclidean pattern and a note template.
+    pub fn fill_euclidean(&mut self, col: u32, pattern: &[bool], template: NoteEvent) {
+        for (i, &hit) in pattern.iter().enumerate().take(self.rows as usize) {
+            self.set(
+                i as u32,
+                col,
+                if hit { Some(template.clone()) } else { None },
+            );
+        }
+    }
+
     /// Extract a single column (voice) as a sequential tree.
     pub fn column_tree(&self, col: u32) -> Tree<NoteEvent> {
         let rows: Vec<Tree<NoteEvent>> = (0..self.rows)

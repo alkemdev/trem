@@ -1,9 +1,10 @@
+pub mod dsp;
+pub mod euclidean;
+pub mod event;
+pub mod graph;
+pub mod grid;
 pub mod math;
 pub mod pitch;
-pub mod time;
-pub mod event;
-pub mod tree;
-pub mod grid;
-pub mod graph;
-pub mod dsp;
 pub mod render;
+pub mod time;
+pub mod tree;

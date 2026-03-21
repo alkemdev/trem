@@ -50,3 +50,24 @@ pub fn value() -> Style {
 pub fn title() -> Style {
     Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)
 }
+
+/// Map note velocity (0.0–1.0) to a color gradient.
+/// Ghost notes are dim, loud notes are vivid.
+pub fn note_velocity_color(vel: f64) -> Color {
+    let t = vel.clamp(0.0, 1.0) as f32;
+    if t < 0.5 {
+        let s = t * 2.0;
+        Color::Rgb(
+            (40.0 + s * 50.0) as u8,
+            (55.0 + s * 120.0) as u8,
+            (100.0 + s * 130.0) as u8,
+        )
+    } else {
+        let s = (t - 0.5) * 2.0;
+        Color::Rgb(
+            (90.0 + s * 165.0) as u8,
+            (175.0 + s * 65.0) as u8,
+            (230.0 + s * 25.0) as u8,
+        )
+    }
+}

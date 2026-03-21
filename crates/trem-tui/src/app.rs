@@ -44,6 +44,8 @@ pub struct App {
     pub graph_params: Vec<Vec<ParamDescriptor>>,
     pub graph_param_values: Vec<Vec<f64>>,
     pub param_cursor: usize,
+    pub euclidean_k: u32,
+    rng_state: u64,
     preview_note_off: Option<(u32, Instant)>,
 }
 
@@ -84,6 +86,11 @@ impl App {
             graph_params: Vec::new(),
             graph_param_values: Vec::new(),
             param_cursor: 0,
+            euclidean_k: 0,
+            rng_state: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64,
             preview_note_off: None,
         }
     }
@@ -224,6 +231,66 @@ impl App {
                     self.bridge.send(Command::SetBpm(self.bpm));
                 }
             }
+            Action::EuclideanFill => {
+                if self.view == View::Pattern {
+                    self.euclidean_k = (self.euclidean_k + 1) % (self.grid.rows + 1);
+                    let pattern = trem::euclidean::euclidean(self.euclidean_k, self.grid.rows);
+                    let template = NoteEvent::new(0, self.octave, Rational::new(3, 4));
+                    self.grid
+                        .fill_euclidean(self.cursor_col, &pattern, template);
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
+            Action::RandomizeVoice => {
+                if self.view == View::Pattern {
+                    self.randomize_current_voice();
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
+            Action::ReverseVoice => {
+                if self.view == View::Pattern {
+                    self.grid.reverse_voice(self.cursor_col);
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
+            Action::ShiftVoiceLeft => {
+                if self.view == View::Pattern {
+                    self.grid.shift_voice(self.cursor_col, -1);
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
+            Action::ShiftVoiceRight => {
+                if self.view == View::Pattern {
+                    self.grid.shift_voice(self.cursor_col, 1);
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
+            Action::VelocityUp => {
+                if self.view == View::Pattern {
+                    self.adjust_note_velocity(Rational::new(1, 8));
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
+            Action::VelocityDown => {
+                if self.view == View::Pattern {
+                    self.adjust_note_velocity(Rational::new(-1, 8));
+                    if self.playing {
+                        self.send_pattern();
+                    }
+                }
+            }
         }
     }
 
@@ -258,6 +325,47 @@ impl App {
             param_id: desc.id,
             value: new_val,
         });
+    }
+
+    fn next_rng(&mut self) -> u64 {
+        self.rng_state = self
+            .rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        self.rng_state
+    }
+
+    fn randomize_current_voice(&mut self) {
+        let col = self.cursor_col;
+        let scale_len = self.scale.len() as i32;
+        for row in 0..self.grid.rows {
+            let r = self.next_rng();
+            if r % 100 < 40 {
+                let degree = (self.next_rng() % scale_len.max(1) as u64) as i32;
+                let vel_n = (self.next_rng() % 6 + 2) as i64; // 2..8
+                let event = NoteEvent::new(degree, self.octave, Rational::new(vel_n, 8));
+                self.grid.set(row, col, Some(event));
+            } else {
+                self.grid.set(row, col, None);
+            }
+        }
+    }
+
+    fn adjust_note_velocity(&mut self, delta: Rational) {
+        if let Some(note) = self.grid.get(self.cursor_row, self.cursor_col).cloned() {
+            let new_vel = note.velocity + delta;
+            let clamped = if new_vel.to_f64() < 0.0625 {
+                Rational::new(1, 16)
+            } else if new_vel.to_f64() > 1.0 {
+                Rational::new(1, 1)
+            } else {
+                new_vel
+            };
+            let mut updated = note;
+            updated.velocity = clamped;
+            self.grid
+                .set(self.cursor_row, self.cursor_col, Some(updated));
+        }
     }
 
     fn graph_move_up(&mut self) {

@@ -55,6 +55,13 @@ pub enum Action {
     OctaveDown,
     BpmUp,
     BpmDown,
+    EuclideanFill,
+    RandomizeVoice,
+    ReverseVoice,
+    ShiftVoiceLeft,
+    ShiftVoiceRight,
+    VelocityUp,
+    VelocityDown,
 }
 
 pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
@@ -109,6 +116,13 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
             KeyCode::Char('j') => Some(Action::NoteInput(10)),
             KeyCode::Char('m') => Some(Action::NoteInput(11)),
             KeyCode::Char(ch @ '0'..='9') => Some(Action::NoteInput(ch as i32 - '0' as i32)),
+            KeyCode::Char('f') => Some(Action::EuclideanFill),
+            KeyCode::Char('r') => Some(Action::RandomizeVoice),
+            KeyCode::Char('t') => Some(Action::ReverseVoice),
+            KeyCode::Char(',') => Some(Action::ShiftVoiceLeft),
+            KeyCode::Char('.') => Some(Action::ShiftVoiceRight),
+            KeyCode::Char('w') => Some(Action::VelocityUp),
+            KeyCode::Char('q') => Some(Action::VelocityDown),
             _ => None,
         },
     }

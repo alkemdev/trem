@@ -149,10 +149,11 @@ impl<'a> Widget for PatternView<'a> {
                 let (text, style) = match self.grid.get(step, vi) {
                     Some(event) => {
                         let name = format_note(event, self.scale);
+                        let vel = event.velocity.to_f64();
                         let s = if is_cursor {
                             theme::cell_cursor()
                         } else {
-                            Style::new().fg(theme::NOTE_COLOR).bg(col_bg)
+                            Style::new().fg(theme::note_velocity_color(vel)).bg(col_bg)
                         };
                         (name, s)
                     }
