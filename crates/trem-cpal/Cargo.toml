@@ -1,0 +1,11 @@
+[package]
+name = "trem-cpal"
+version = "0.1.0"
+edition = "2021"
+description = "Real-time audio backend for trem using cpal"
+
+[dependencies]
+trem = { workspace = true }
+cpal = { workspace = true }
+rtrb = { workspace = true }
+anyhow = { workspace = true }

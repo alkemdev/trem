@@ -1,0 +1,8 @@
+[package]
+name = "trem"
+version = "0.1.0"
+edition = "2021"
+description = "A mathematical music engine — rational time, xenharmonic pitch, recursive trees, audio graphs"
+
+[dependencies]
+bitflags = "2"

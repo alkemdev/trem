@@ -1,0 +1,30 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+trem = { path = "crates/trem" }
+trem-cpal = { path = "crates/trem-cpal" }
+trem-tui = { path = "crates/trem-tui" }
+ratatui = "0.30"
+crossterm = "0.28"
+cpal = "0.17"
+rtrb = "0.3"
+anyhow = "1"
+
+[package]
+name = "trem-bin"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "trem"
+path = "src/main.rs"
+
+[dependencies]
+trem = { workspace = true }
+trem-cpal = { workspace = true }
+trem-tui = { workspace = true }
+anyhow = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }

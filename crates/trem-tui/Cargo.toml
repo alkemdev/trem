@@ -1,0 +1,12 @@
+[package]
+name = "trem-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal UI for the trem mathematical music engine"
+
+[dependencies]
+trem = { workspace = true }
+trem-cpal = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+anyhow = { workspace = true }

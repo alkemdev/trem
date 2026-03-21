@@ -1,0 +1,52 @@
+use ratatui::style::{Color, Modifier, Style};
+
+pub const BG: Color = Color::Rgb(18, 18, 24);
+pub const FG: Color = Color::Rgb(204, 204, 220);
+pub const ACCENT: Color = Color::Rgb(255, 90, 120);
+pub const DIM: Color = Color::Rgb(88, 88, 108);
+pub const HIGHLIGHT: Color = Color::Rgb(60, 60, 90);
+pub const ACTIVE_ROW: Color = Color::Rgb(35, 55, 35);
+pub const NOTE_COLOR: Color = Color::Rgb(120, 215, 255);
+pub const SURFACE: Color = Color::Rgb(28, 28, 38);
+pub const MUTED: Color = Color::Rgb(55, 55, 70);
+pub const GREEN: Color = Color::Rgb(80, 200, 120);
+pub const YELLOW: Color = Color::Rgb(230, 200, 80);
+
+pub fn header() -> Style {
+    Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)
+}
+
+pub fn cell_empty() -> Style {
+    Style::new().fg(DIM).bg(BG)
+}
+
+pub fn cell_note() -> Style {
+    Style::new().fg(NOTE_COLOR).bg(BG)
+}
+
+pub fn cell_cursor() -> Style {
+    Style::new()
+        .fg(FG)
+        .bg(HIGHLIGHT)
+        .add_modifier(Modifier::BOLD)
+}
+
+pub fn transport() -> Style {
+    Style::new().fg(FG).bg(SURFACE)
+}
+
+pub fn border() -> Style {
+    Style::new().fg(MUTED).bg(BG)
+}
+
+pub fn label() -> Style {
+    Style::new().fg(DIM).bg(BG)
+}
+
+pub fn value() -> Style {
+    Style::new().fg(FG).bg(BG)
+}
+
+pub fn title() -> Style {
+    Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)
+}
