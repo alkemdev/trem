@@ -3,7 +3,10 @@
 //! Output is 0–1; multiply happens per sample so you can drive amps or filters from the same block.
 
 use crate::event::GraphEvent;
-use crate::graph::{ProcessContext, Processor, ProcessorInfo};
+use crate::graph::{
+    GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
+    ProcessorInfo,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
@@ -156,6 +159,83 @@ impl Processor for Adsr {
     fn reset(&mut self) {
         self.stage = Stage::Idle;
         self.level = 0.0;
+    }
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![
+            ParamDescriptor {
+                id: 0,
+                name: "Attack",
+                min: 0.001,
+                max: 5.0,
+                default: 0.01,
+                unit: ParamUnit::Seconds,
+                flags: ParamFlags::LOG_SCALE,
+                step: 0.005,
+                group: Some(0),
+            },
+            ParamDescriptor {
+                id: 1,
+                name: "Decay",
+                min: 0.001,
+                max: 5.0,
+                default: 0.1,
+                unit: ParamUnit::Seconds,
+                flags: ParamFlags::LOG_SCALE,
+                step: 0.01,
+                group: Some(0),
+            },
+            ParamDescriptor {
+                id: 2,
+                name: "Sustain",
+                min: 0.0,
+                max: 1.0,
+                default: 0.7,
+                unit: ParamUnit::Linear,
+                flags: ParamFlags::NONE,
+                step: 0.05,
+                group: Some(0),
+            },
+            ParamDescriptor {
+                id: 3,
+                name: "Release",
+                min: 0.001,
+                max: 5.0,
+                default: 0.3,
+                unit: ParamUnit::Seconds,
+                flags: ParamFlags::LOG_SCALE,
+                step: 0.01,
+                group: Some(0),
+            },
+        ]
+    }
+
+    fn param_groups(&self) -> Vec<ParamGroup> {
+        vec![ParamGroup {
+            id: 0,
+            name: "Envelope",
+            hint: GroupHint::Envelope,
+        }]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.attack,
+            1 => self.decay,
+            2 => self.sustain,
+            3 => self.release,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.attack = value.clamp(0.001, 5.0),
+            1 => self.decay = value.clamp(0.001, 5.0),
+            2 => self.sustain = value.clamp(0.0, 1.0),
+            3 => self.release = value.clamp(0.001, 5.0),
+            _ => {}
+        }
     }
 }
 

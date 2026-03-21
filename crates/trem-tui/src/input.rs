@@ -34,6 +34,29 @@ impl View {
     pub const ALL: [View; 2] = [View::Pattern, View::Graph];
 }
 
+/// Bottom pane visualizer: stereo waveform or frequency spectrum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BottomPane {
+    Waveform,
+    Spectrum,
+}
+
+impl BottomPane {
+    pub fn next(self) -> Self {
+        match self {
+            BottomPane::Waveform => BottomPane::Spectrum,
+            BottomPane::Spectrum => BottomPane::Waveform,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BottomPane::Waveform => "SCOPE",
+            BottomPane::Spectrum => "SPECTRUM",
+        }
+    }
+}
+
 /// Whether arrow/vim keys move the grid/graph or edit parameters / enter notes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -72,9 +95,12 @@ pub enum Action {
     DeleteNote,
     OctaveUp,
     OctaveDown,
-    /// `+`/`-`; in graph edit the app may treat these as fine param nudge instead of BPM.
     BpmUp,
     BpmDown,
+    /// Fine-adjust selected param (+): one-tenth of coarse step.
+    ParamFineUp,
+    /// Fine-adjust selected param (-): one-tenth of coarse step.
+    ParamFineDown,
     /// `f`: Euclidean rhythm fill for the current voice column.
     EuclideanFill,
     /// `r`: randomize notes on the current voice.
@@ -100,6 +126,8 @@ pub enum Action {
     SaveProject,
     /// Ctrl+o: load project.
     LoadProject,
+    /// Backtick: toggle bottom pane between waveform and spectrum.
+    CycleBottomPane,
 }
 
 /// Maps a key to an action for the given mode; release events and unbound keys yield `None`.
@@ -119,6 +147,14 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         };
     }
 
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        match key.code {
+            KeyCode::Left => return Some(Action::ParamFineDown),
+            KeyCode::Right => return Some(Action::ParamFineUp),
+            _ => {}
+        }
+    }
+
     match key.code {
         KeyCode::Tab => return Some(Action::CycleView),
         KeyCode::Char(' ') => return Some(Action::TogglePlay),
@@ -132,6 +168,7 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         KeyCode::Char(']') => return Some(Action::OctaveUp),
         KeyCode::Char('{') => return Some(Action::SwingDown),
         KeyCode::Char('}') => return Some(Action::SwingUp),
+        KeyCode::Char('`') => return Some(Action::CycleBottomPane),
         KeyCode::Esc if *mode == Mode::Edit => return Some(Action::ToggleEdit),
         _ => {}
     }

@@ -60,6 +60,8 @@ impl Processor for Gain {
                 default: 1.0,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: None,
             },
             ParamDescriptor {
                 id: 1,
@@ -69,6 +71,8 @@ impl Processor for Gain {
                 default: 0.0,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::BIPOLAR,
+                step: 0.05,
+                group: None,
             },
         ]
     }
@@ -130,6 +134,8 @@ impl Processor for StereoGain {
             default: 1.0,
             unit: ParamUnit::Linear,
             flags: ParamFlags::NONE,
+            step: 0.05,
+            group: None,
         }]
     }
 
@@ -186,6 +192,8 @@ impl Processor for MonoGain {
             default: 1.0,
             unit: ParamUnit::Linear,
             flags: ParamFlags::NONE,
+            step: 0.05,
+            group: None,
         }]
     }
 

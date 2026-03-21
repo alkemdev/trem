@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Padding, Widget};
 use std::collections::{HashMap, HashSet};
-use trem::graph::{ParamDescriptor, ParamUnit};
+use trem::graph::{GroupHint, ParamDescriptor, ParamGroup, ParamUnit};
 
 const NAME_W: u16 = 12;
 const GAP_W: u16 = 4;
@@ -143,6 +143,7 @@ pub struct GraphViewWidget<'a> {
     pub selected: usize,
     pub params: Option<&'a [ParamDescriptor]>,
     pub param_values: Option<&'a [f64]>,
+    pub param_groups: Option<&'a [ParamGroup]>,
     pub param_cursor: Option<usize>,
 }
 
@@ -167,8 +168,12 @@ impl<'a> Widget for GraphViewWidget<'a> {
             return;
         }
 
-        let param_count = self.params.map_or(0, |p| p.len());
-        let detail_h: u16 = (3 + param_count as u16).min(inner.height / 2).max(3);
+        let has_params = self.params.map_or(false, |p| !p.is_empty());
+        let detail_h: u16 = if has_params {
+            (inner.height / 2).max(6)
+        } else {
+            3u16.min(inner.height / 3)
+        };
         let graph_h = inner.height.saturating_sub(detail_h + 1);
 
         let sel_pos = &layout.positions[self.selected];
@@ -326,140 +331,390 @@ impl<'a> Widget for GraphViewWidget<'a> {
             }
         }
 
-        // --- Detail panel ---
+        // --- Detail panel (scrollable) ---
         let det_y = sep_y + 1;
         if det_y >= inner.y + inner.height {
             return;
         }
-        let det_bottom = inner.y + inner.height;
-        let mut py = det_y;
+        let viewport_h = (inner.y + inner.height).saturating_sub(det_y) as usize;
+        if viewport_h == 0 {
+            return;
+        }
 
         let sel_name = &self.nodes[self.selected].1;
         let dim = Style::new().fg(theme::DIM).bg(theme::BG);
         let val_s = theme::value();
 
+        // --- Build virtual row list ---
+        let mut rows: Vec<DetailRow> = Vec::new();
+
         // Node name
-        let name_line = Line::from(vec![
+        rows.push(DetailRow::NodeHeader(Line::from(vec![
             Span::styled(" \u{25c6} ", sel_style),
             Span::styled(sel_name.as_str(), sel_style),
-        ]);
-        buf.set_line(inner.x, py, &name_line, inner.width);
-        py += 1;
+        ])));
 
         // Connections
-        if py < det_bottom {
-            let inputs: Vec<&str> = layout
-                .unique_edges
-                .iter()
-                .filter(|&&(_, d)| d == self.selected)
-                .map(|&(s, _)| self.nodes[s].1.as_str())
-                .collect();
-            let outputs: Vec<&str> = layout
-                .unique_edges
-                .iter()
-                .filter(|&&(s, _)| s == self.selected)
-                .map(|&(_, d)| self.nodes[d].1.as_str())
-                .collect();
+        let inputs: Vec<&str> = layout
+            .unique_edges
+            .iter()
+            .filter(|&&(_, d)| d == self.selected)
+            .map(|&(s, _)| self.nodes[s].1.as_str())
+            .collect();
+        let outputs: Vec<&str> = layout
+            .unique_edges
+            .iter()
+            .filter(|&&(s, _)| s == self.selected)
+            .map(|&(_, d)| self.nodes[d].1.as_str())
+            .collect();
+        let in_str = if inputs.is_empty() {
+            "\u{2014}".to_string()
+        } else {
+            inputs.join(" \u{2192} ")
+        };
+        let out_str = if outputs.is_empty() {
+            "\u{2014}".to_string()
+        } else {
+            outputs.join(" \u{2192} ")
+        };
+        rows.push(DetailRow::Static(Line::from(vec![
+            Span::styled("   \u{2190} ", dim),
+            Span::styled(in_str, val_s),
+            Span::styled("   \u{2192} ", dim),
+            Span::styled(out_str, val_s),
+        ])));
 
-            let in_str = if inputs.is_empty() {
-                "\u{2014}".to_string()
-            } else {
-                inputs.join(" \u{2192} ")
-            };
-            let out_str = if outputs.is_empty() {
-                "\u{2014}".to_string()
-            } else {
-                outputs.join(" \u{2192} ")
-            };
-            let conn_line = Line::from(vec![
-                Span::styled("   \u{2190} ", dim),
-                Span::styled(in_str, val_s),
-                Span::styled("   \u{2192} ", dim),
-                Span::styled(out_str, val_s),
-            ]);
-            buf.set_line(inner.x, py, &conn_line, inner.width);
-            py += 1;
-        }
-
-        // --- Parameters ---
         if let (Some(params), Some(values)) = (self.params, self.param_values) {
-            if params.is_empty() {
-                return;
-            }
+            if !params.is_empty() {
+                rows.push(DetailRow::Blank);
 
-            py += 1;
-            if py >= det_bottom {
-                return;
-            }
+                let groups = self.param_groups.unwrap_or(&[]);
+                let group_name_s = Style::new()
+                    .fg(theme::YELLOW)
+                    .bg(theme::BG)
+                    .add_modifier(Modifier::BOLD);
+                let spark_s = Style::new().fg(theme::GREEN).bg(theme::BG);
 
-            let bar_w = 10usize;
+                let mut sections: Vec<(Option<&ParamGroup>, Vec<(usize, &ParamDescriptor, f64)>)> =
+                    Vec::new();
 
-            for (i, (desc, &value)) in params.iter().zip(values.iter()).enumerate() {
-                if py >= det_bottom {
-                    break;
+                if groups.is_empty() {
+                    let items: Vec<_> = params
+                        .iter()
+                        .zip(values.iter())
+                        .enumerate()
+                        .map(|(i, (d, &v))| (i, d, v))
+                        .collect();
+                    sections.push((None, items));
+                } else {
+                    for g in groups {
+                        let items: Vec<_> = params
+                            .iter()
+                            .zip(values.iter())
+                            .enumerate()
+                            .filter(|(_, (d, _))| d.group == Some(g.id))
+                            .map(|(i, (d, &v))| (i, d, v))
+                            .collect();
+                        if !items.is_empty() {
+                            sections.push((Some(g), items));
+                        }
+                    }
+                    let ungrouped: Vec<_> = params
+                        .iter()
+                        .zip(values.iter())
+                        .enumerate()
+                        .filter(|(_, (d, _))| d.group.is_none())
+                        .map(|(i, (d, &v))| (i, d, v))
+                        .collect();
+                    if !ungrouped.is_empty() {
+                        sections.push((None, ungrouped));
+                    }
                 }
 
-                let is_sel = self.param_cursor == Some(i);
+                for (group, items) in &sections {
+                    if let Some(g) = group {
+                        let preview = match g.hint {
+                            GroupHint::Envelope => {
+                                let a = find_group_value(items, "Attack").unwrap_or(0.01);
+                                let d = find_group_value(items, "Decay").unwrap_or(0.1);
+                                let s = find_group_value(items, "Sustain").unwrap_or(0.7);
+                                let r = find_group_value(items, "Release").unwrap_or(0.3);
+                                Some(envelope_sparkline(a, d, s, r))
+                            }
+                            GroupHint::Filter => {
+                                let freq = find_group_value_unit(items, ParamUnit::Hertz)
+                                    .unwrap_or(1000.0);
+                                let q = find_group_value_by_suffix(items, "Q")
+                                    .or_else(|| find_group_value_by_suffix(items, "Resonance"))
+                                    .unwrap_or(0.707);
+                                Some(filter_sparkline(freq, q))
+                            }
+                            _ => None,
+                        };
 
-                let marker = if is_sel { "\u{25b8} " } else { "  " };
-                let name_w = 11;
-                let name_fmt = format!("{:<w$}", desc.name, w = name_w);
+                        let mut spans = vec![
+                            Span::styled(" \u{2576} ", dim),
+                            Span::styled(g.name, group_name_s),
+                            Span::styled(" ", dim),
+                        ];
+                        if let Some(sparkline) = preview {
+                            spans.push(Span::styled(sparkline, spark_s));
+                        }
+                        rows.push(DetailRow::Static(Line::from(spans)));
+                    }
 
-                let range = desc.max - desc.min;
-                let norm = if range > 0.0 {
-                    ((value - desc.min) / range).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let filled = (norm * bar_w as f64).round() as usize;
-                let filled = filled.min(bar_w);
-
-                let bar_on = "\u{2501}".repeat(filled);
-                let bar_off = "\u{2500}".repeat(bar_w - filled);
-
-                let knob = if is_sel { "\u{25cf}" } else { "\u{2502}" };
-
-                let display_val = format_param_value(value, desc);
-
-                let (marker_s, name_s, bar_on_s, bar_off_s, knob_s, val_s_row) = if is_sel {
-                    (
-                        Style::new().fg(theme::ACCENT).bg(theme::BG),
-                        Style::new()
-                            .fg(theme::FG)
-                            .bg(theme::BG)
-                            .add_modifier(Modifier::BOLD),
-                        Style::new().fg(theme::GREEN).bg(theme::BG),
-                        Style::new().fg(theme::MUTED).bg(theme::BG),
-                        Style::new()
-                            .fg(theme::GREEN)
-                            .bg(theme::BG)
-                            .add_modifier(Modifier::BOLD),
-                        Style::new().fg(theme::NOTE_COLOR).bg(theme::BG),
-                    )
-                } else {
-                    (
-                        dim,
-                        dim,
-                        Style::new().fg(theme::DIM).bg(theme::BG),
-                        Style::new().fg(theme::MUTED).bg(theme::BG),
-                        Style::new().fg(theme::DIM).bg(theme::BG),
-                        Style::new().fg(theme::FG).bg(theme::BG),
-                    )
-                };
-
-                let line = Line::from(vec![
-                    Span::styled(marker, marker_s),
-                    Span::styled(name_fmt, name_s),
-                    Span::styled(bar_on, bar_on_s),
-                    Span::styled(knob, knob_s),
-                    Span::styled(bar_off, bar_off_s),
-                    Span::styled(format!(" {:<10}", display_val), val_s_row),
-                ]);
-                buf.set_line(inner.x, py, &line, inner.width);
-                py += 1;
+                    for &(flat_i, desc, value) in items {
+                        rows.push(DetailRow::Param {
+                            flat_index: flat_i,
+                            desc,
+                            value,
+                        });
+                    }
+                }
             }
         }
+
+        let total_rows = rows.len();
+
+        // --- Compute scroll offset to keep selected param visible ---
+        let selected_row = rows.iter().position(|r| match r {
+            DetailRow::Param { flat_index, .. } => self.param_cursor == Some(*flat_index),
+            _ => false,
+        });
+
+        let scroll = if let Some(sel_row) = selected_row {
+            if total_rows <= viewport_h {
+                0
+            } else {
+                let margin = 2usize;
+                let top = sel_row.saturating_sub(margin);
+                let bot_min = (sel_row + 1 + margin).saturating_sub(viewport_h);
+                top.clamp(bot_min, total_rows.saturating_sub(viewport_h))
+            }
+        } else {
+            0
+        };
+
+        // --- Render visible rows ---
+        let scroll_above = scroll > 0;
+        let scroll_below = scroll + viewport_h < total_rows;
+
+        let render_start = if scroll_above { 1 } else { 0 };
+        let render_end = if scroll_below {
+            viewport_h.saturating_sub(1)
+        } else {
+            viewport_h
+        };
+
+        let scroll_ind_s = Style::new().fg(theme::MUTED).bg(theme::BG);
+
+        if scroll_above {
+            let above = scroll;
+            let line = Line::from(Span::styled(
+                format!("  \u{25b2} {} more", above),
+                scroll_ind_s,
+            ));
+            buf.set_line(inner.x, det_y, &line, inner.width);
+        }
+
+        for vi in render_start..render_end {
+            let ri = scroll + vi;
+            if ri >= total_rows {
+                break;
+            }
+            let py = det_y + vi as u16;
+            match &rows[ri] {
+                DetailRow::NodeHeader(line) | DetailRow::Static(line) => {
+                    buf.set_line(inner.x, py, line, inner.width);
+                }
+                DetailRow::Blank => {}
+                DetailRow::Param {
+                    flat_index,
+                    desc,
+                    value,
+                } => {
+                    render_param_row(
+                        buf,
+                        inner.x,
+                        py,
+                        inner.width,
+                        desc,
+                        *value,
+                        self.param_cursor == Some(*flat_index),
+                    );
+                }
+            }
+        }
+
+        if scroll_below {
+            let below = total_rows - (scroll + viewport_h);
+            let line = Line::from(Span::styled(
+                format!("  \u{25bc} {} more", below),
+                scroll_ind_s,
+            ));
+            buf.set_line(inner.x, det_y + viewport_h as u16 - 1, &line, inner.width);
+        }
     }
+}
+
+enum DetailRow<'a> {
+    NodeHeader(Line<'a>),
+    Static(Line<'a>),
+    Blank,
+    Param {
+        flat_index: usize,
+        desc: &'a ParamDescriptor,
+        value: f64,
+    },
+}
+
+fn find_group_value(items: &[(usize, &ParamDescriptor, f64)], name_contains: &str) -> Option<f64> {
+    items
+        .iter()
+        .find(|(_, d, _)| d.name.contains(name_contains))
+        .map(|&(_, _, v)| v)
+}
+
+fn find_group_value_unit(items: &[(usize, &ParamDescriptor, f64)], unit: ParamUnit) -> Option<f64> {
+    items
+        .iter()
+        .find(|(_, d, _)| d.unit == unit)
+        .map(|&(_, _, v)| v)
+}
+
+fn find_group_value_by_suffix(
+    items: &[(usize, &ParamDescriptor, f64)],
+    suffix: &str,
+) -> Option<f64> {
+    items
+        .iter()
+        .find(|(_, d, _)| d.name.ends_with(suffix))
+        .map(|&(_, _, v)| v)
+}
+
+const BARS: [char; 8] = [
+    '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}',
+];
+
+fn sparkline_from_values(vals: &[f64]) -> String {
+    let max = vals.iter().cloned().fold(0.0f64, f64::max).max(1e-9);
+    vals.iter()
+        .map(|&v| {
+            let norm = (v / max).clamp(0.0, 1.0);
+            let idx = ((norm * 7.0).round() as usize).min(7);
+            BARS[idx]
+        })
+        .collect()
+}
+
+/// Compute a 16-sample ADSR envelope shape and render as a sparkline.
+fn envelope_sparkline(attack: f64, decay: f64, sustain: f64, release: f64) -> String {
+    let n = 16usize;
+    let total = attack + decay + 0.15 + release;
+    let a_cols = ((attack / total) * n as f64).round().clamp(1.0, 5.0) as usize;
+    let d_cols = ((decay / total) * n as f64).round().clamp(1.0, 5.0) as usize;
+    let r_cols = ((release / total) * n as f64).round().clamp(1.0, 5.0) as usize;
+    let s_cols = n.saturating_sub(a_cols + d_cols + r_cols).max(1);
+
+    let mut vals = Vec::with_capacity(n);
+    for i in 0..a_cols {
+        vals.push((i + 1) as f64 / a_cols as f64);
+    }
+    for i in 0..d_cols {
+        let t = (i + 1) as f64 / d_cols as f64;
+        vals.push(1.0 - t * (1.0 - sustain));
+    }
+    for _ in 0..s_cols {
+        vals.push(sustain);
+    }
+    for i in 0..r_cols {
+        let t = (i + 1) as f64 / r_cols as f64;
+        vals.push(sustain * (1.0 - t));
+    }
+    vals.truncate(n);
+    sparkline_from_values(&vals)
+}
+
+/// Compute a simple lowpass frequency response and render as a sparkline.
+fn filter_sparkline(cutoff_hz: f64, q: f64) -> String {
+    let n = 16;
+    let mut vals = vec![0.0; n];
+    for i in 0..n {
+        let freq = 20.0 * (20000.0 / 20.0f64).powf(i as f64 / (n - 1) as f64);
+        let ratio = freq / cutoff_hz;
+        let mag = 1.0
+            / (1.0 + ratio.powi(4) - 2.0 * ratio.powi(2) + ratio.powi(2) / (q * q))
+                .sqrt()
+                .max(0.01);
+        vals[i] = mag.min(2.0);
+    }
+    sparkline_from_values(&vals)
+}
+
+fn render_param_row(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    desc: &ParamDescriptor,
+    value: f64,
+    is_sel: bool,
+) {
+    let bar_w = 10usize;
+    let marker = if is_sel { "\u{25b8} " } else { "  " };
+    let name_w = 11;
+    let name_fmt = format!("{:<w$}", desc.name, w = name_w);
+
+    let range = desc.max - desc.min;
+    let norm = if range > 0.0 {
+        ((value - desc.min) / range).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let filled = (norm * bar_w as f64).round() as usize;
+    let filled = filled.min(bar_w);
+
+    let bar_on = "\u{2501}".repeat(filled);
+    let bar_off = "\u{2500}".repeat(bar_w - filled);
+    let knob = if is_sel { "\u{25cf}" } else { "\u{2502}" };
+    let display_val = format_param_value(value, desc);
+
+    let dim = Style::new().fg(theme::DIM).bg(theme::BG);
+    let (marker_s, name_s, bar_on_s, bar_off_s, knob_s, val_s) = if is_sel {
+        (
+            Style::new().fg(theme::ACCENT).bg(theme::BG),
+            Style::new()
+                .fg(theme::FG)
+                .bg(theme::BG)
+                .add_modifier(Modifier::BOLD),
+            Style::new().fg(theme::GREEN).bg(theme::BG),
+            Style::new().fg(theme::MUTED).bg(theme::BG),
+            Style::new()
+                .fg(theme::GREEN)
+                .bg(theme::BG)
+                .add_modifier(Modifier::BOLD),
+            Style::new().fg(theme::NOTE_COLOR).bg(theme::BG),
+        )
+    } else {
+        (
+            dim,
+            dim,
+            Style::new().fg(theme::DIM).bg(theme::BG),
+            Style::new().fg(theme::MUTED).bg(theme::BG),
+            Style::new().fg(theme::DIM).bg(theme::BG),
+            Style::new().fg(theme::FG).bg(theme::BG),
+        )
+    };
+
+    let line = Line::from(vec![
+        Span::styled(marker, marker_s),
+        Span::styled(name_fmt, name_s),
+        Span::styled(bar_on, bar_on_s),
+        Span::styled(knob, knob_s),
+        Span::styled(bar_off, bar_off_s),
+        Span::styled(format!(" {:<10}", display_val), val_s),
+    ]);
+    buf.set_line(x, y, &line, width);
 }
 
 fn format_param_value(value: f64, desc: &ParamDescriptor) -> String {

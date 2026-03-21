@@ -1,4 +1,4 @@
-use crate::input::{Mode, View};
+use crate::input::{BottomPane, Mode, View};
 use crate::theme;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -15,6 +15,7 @@ pub struct TransportView<'a> {
     pub scale_name: &'a str,
     pub octave: i32,
     pub swing: f64,
+    pub bottom_pane: BottomPane,
 }
 
 impl<'a> Widget for TransportView<'a> {
@@ -84,6 +85,12 @@ impl<'a> Widget for TransportView<'a> {
                 base.fg(theme::YELLOW),
             ));
         }
+
+        spans.push(Span::styled("\u{2502}", sep));
+        spans.push(Span::styled(
+            format!(" {} ", self.bottom_pane.label()),
+            base.fg(theme::DIM),
+        ));
 
         Paragraph::new(Line::from(spans))
             .style(base)

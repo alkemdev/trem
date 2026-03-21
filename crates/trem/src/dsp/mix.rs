@@ -1,8 +1,69 @@
-//! Summing bus for multiple stereo sources into one stereo output with a master level control.
+//! Summing buses and crossfade mixers for mono and stereo routing.
 
 use crate::graph::{
     ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
 };
+
+/// Two mono inputs blended to one mono output via a crossfade parameter.
+///
+/// `mix = 0.0` passes input 0 only; `mix = 1.0` passes input 1 only.
+pub struct MonoCrossfade {
+    pub mix: f32,
+}
+
+impl MonoCrossfade {
+    pub fn new(mix: f32) -> Self {
+        Self { mix }
+    }
+}
+
+impl Processor for MonoCrossfade {
+    fn info(&self) -> ProcessorInfo {
+        ProcessorInfo {
+            name: "crossfade",
+            audio_inputs: 2,
+            audio_outputs: 1,
+        }
+    }
+
+    fn process(&mut self, ctx: &mut ProcessContext) {
+        let a = 1.0 - self.mix;
+        let b = self.mix;
+        for i in 0..ctx.frames {
+            ctx.outputs[0][i] = ctx.inputs[0][i] * a + ctx.inputs[1][i] * b;
+        }
+    }
+
+    fn reset(&mut self) {}
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![ParamDescriptor {
+            id: 0,
+            name: "Mix",
+            min: 0.0,
+            max: 1.0,
+            default: 0.5,
+            unit: ParamUnit::Linear,
+            flags: ParamFlags::NONE,
+            step: 0.05,
+            group: None,
+        }]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.mix as f64,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.mix = value.clamp(0.0, 1.0) as f32,
+            _ => {}
+        }
+    }
+}
 
 /// Stereo mixer — sums N stereo input pairs to one stereo output with level.
 ///
@@ -74,6 +135,8 @@ impl Processor for StereoMixer {
             default: 1.0,
             unit: ParamUnit::Linear,
             flags: ParamFlags::NONE,
+            step: 0.05,
+            group: None,
         }]
     }
 

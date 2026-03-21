@@ -1,7 +1,8 @@
 //! Stereo delay with feedback and wet/dry mix; fixed maximum buffer sized for long times at 44.1 kHz.
 
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
+    ProcessorInfo,
 };
 
 const MAX_DELAY_SAMPLES: usize = 44100 * 2; // 2 seconds at 44.1kHz
@@ -91,6 +92,8 @@ impl Processor for StereoDelay {
                 default: 250.0,
                 unit: ParamUnit::Milliseconds,
                 flags: ParamFlags::LOG_SCALE,
+                step: 5.0,
+                group: Some(0),
             },
             ParamDescriptor {
                 id: 1,
@@ -100,6 +103,8 @@ impl Processor for StereoDelay {
                 default: 0.4,
                 unit: ParamUnit::Percent,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: Some(0),
             },
             ParamDescriptor {
                 id: 2,
@@ -109,8 +114,18 @@ impl Processor for StereoDelay {
                 default: 0.3,
                 unit: ParamUnit::Percent,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: Some(0),
             },
         ]
+    }
+
+    fn param_groups(&self) -> Vec<ParamGroup> {
+        vec![ParamGroup {
+            id: 0,
+            name: "Delay",
+            hint: GroupHint::TimeBased,
+        }]
     }
 
     fn get_param(&self, id: u32) -> f64 {

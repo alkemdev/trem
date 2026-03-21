@@ -116,6 +116,8 @@ impl Processor for KickSynth {
                 default: 50.0,
                 unit: ParamUnit::Hertz,
                 flags: ParamFlags::LOG_SCALE,
+                step: 5.0,
+                group: None,
             },
             ParamDescriptor {
                 id: 1,
@@ -125,6 +127,8 @@ impl Processor for KickSynth {
                 default: 8.0,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.01,
+                group: None,
             },
             ParamDescriptor {
                 id: 2,
@@ -134,6 +138,8 @@ impl Processor for KickSynth {
                 default: 30.0,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.5,
+                group: None,
             },
         ]
     }
@@ -316,6 +322,8 @@ impl Processor for SnareSynth {
                 default: 200.0,
                 unit: ParamUnit::Hertz,
                 flags: ParamFlags::LOG_SCALE,
+                step: 10.0,
+                group: None,
             },
             ParamDescriptor {
                 id: 1,
@@ -325,6 +333,8 @@ impl Processor for SnareSynth {
                 default: 25.0,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.01,
+                group: None,
             },
             ParamDescriptor {
                 id: 2,
@@ -334,6 +344,8 @@ impl Processor for SnareSynth {
                 default: 15.0,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: None,
             },
         ]
     }
@@ -487,6 +499,8 @@ impl Processor for HatSynth {
             default: 40.0,
             unit: ParamUnit::Linear,
             flags: ParamFlags::NONE,
+            step: 0.005,
+            group: None,
         }]
     }
 

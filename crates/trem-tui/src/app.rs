@@ -2,12 +2,13 @@
 //!
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
-use crate::input::{self, Action, Mode, View};
+use crate::input::{self, Action, BottomPane, Mode, View};
 use crate::project::ProjectData;
 use crate::view::graph::GraphViewWidget;
 use crate::view::info::InfoView;
 use crate::view::pattern::PatternView;
 use crate::view::scope::ScopeView;
+use crate::view::spectrum::SpectrumView;
 use crate::view::transport::TransportView;
 
 use trem::event::NoteEvent;
@@ -62,6 +63,7 @@ pub struct App {
     pub graph_layers: Vec<Vec<usize>>,
     pub graph_params: Vec<Vec<ParamDescriptor>>,
     pub graph_param_values: Vec<Vec<f64>>,
+    pub graph_param_groups: Vec<Vec<trem::graph::ParamGroup>>,
     pub param_cursor: usize,
     pub swing: f64,
     pub euclidean_k: u32,
@@ -69,6 +71,7 @@ pub struct App {
     pub redo_stack: Vec<Vec<Option<NoteEvent>>>,
     rng_state: u64,
     preview_note_off: Option<(u32, Instant)>,
+    pub bottom_pane: BottomPane,
 }
 
 impl App {
@@ -108,6 +111,7 @@ impl App {
             graph_layers: Vec::new(),
             graph_params: Vec::new(),
             graph_param_values: Vec::new(),
+            graph_param_groups: Vec::new(),
             param_cursor: 0,
             swing: 0.0,
             euclidean_k: 0,
@@ -118,6 +122,7 @@ impl App {
                 .unwrap_or_default()
                 .as_nanos() as u64,
             preview_note_off: None,
+            bottom_pane: BottomPane::Waveform,
         }
     }
 
@@ -126,15 +131,16 @@ impl App {
         mut self,
         nodes: Vec<(u32, String)>,
         edges: Vec<(u32, u16, u32, u16)>,
-        params: Vec<(Vec<ParamDescriptor>, Vec<f64>)>,
+        params: Vec<(Vec<ParamDescriptor>, Vec<f64>, Vec<trem::graph::ParamGroup>)>,
     ) -> Self {
         let (depths, layers) = crate::view::graph::compute_graph_nav(&nodes, &edges);
         self.graph_nodes = nodes;
         self.graph_edges = edges;
         self.graph_depths = depths;
         self.graph_layers = layers;
-        self.graph_params = params.iter().map(|(d, _)| d.clone()).collect();
-        self.graph_param_values = params.into_iter().map(|(_, v)| v).collect();
+        self.graph_params = params.iter().map(|(d, _, _)| d.clone()).collect();
+        self.graph_param_values = params.iter().map(|(_, v, _)| v.clone()).collect();
+        self.graph_param_groups = params.into_iter().map(|(_, _, g)| g).collect();
         self
     }
 
@@ -193,7 +199,7 @@ impl App {
                     self.cursor_row = self.cursor_row.saturating_sub(1);
                 }
                 (View::Graph, Mode::Normal) => self.graph_move_left(),
-                (View::Graph, Mode::Edit) => self.adjust_param(-0.01),
+                (View::Graph, Mode::Edit) => self.adjust_param_coarse(-1),
             },
             Action::MoveRight => match (&self.view, &self.mode) {
                 (View::Pattern, _) => {
@@ -202,7 +208,7 @@ impl App {
                     }
                 }
                 (View::Graph, Mode::Normal) => self.graph_move_right(),
-                (View::Graph, Mode::Edit) => self.adjust_param(0.01),
+                (View::Graph, Mode::Edit) => self.adjust_param_coarse(1),
             },
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
@@ -301,7 +307,7 @@ impl App {
             Action::OctaveDown => self.octave = (self.octave - 1).max(-4),
             Action::BpmUp => {
                 if self.view == View::Graph && self.mode == Mode::Edit {
-                    self.adjust_param(0.001);
+                    self.adjust_param_fine(1);
                 } else {
                     self.bpm = (self.bpm + 1.0).min(300.0);
                     self.bridge.send(Command::SetBpm(self.bpm));
@@ -309,10 +315,20 @@ impl App {
             }
             Action::BpmDown => {
                 if self.view == View::Graph && self.mode == Mode::Edit {
-                    self.adjust_param(-0.001);
+                    self.adjust_param_fine(-1);
                 } else {
                     self.bpm = (self.bpm - 1.0).max(20.0);
                     self.bridge.send(Command::SetBpm(self.bpm));
+                }
+            }
+            Action::ParamFineUp => {
+                if self.view == View::Graph && self.mode == Mode::Edit {
+                    self.adjust_param_fine(1);
+                }
+            }
+            Action::ParamFineDown => {
+                if self.view == View::Graph && self.mode == Mode::Edit {
+                    self.adjust_param_fine(-1);
                 }
             }
             Action::EuclideanFill => {
@@ -382,6 +398,9 @@ impl App {
                     }
                 }
             }
+            Action::CycleBottomPane => {
+                self.bottom_pane = self.bottom_pane.next();
+            }
         }
     }
 
@@ -391,7 +410,15 @@ impl App {
             .map_or(0, |p| p.len())
     }
 
-    fn adjust_param(&mut self, fraction: f64) {
+    fn adjust_param_coarse(&mut self, direction: i32) {
+        self.adjust_param_by(direction, false);
+    }
+
+    fn adjust_param_fine(&mut self, direction: i32) {
+        self.adjust_param_by(direction, true);
+    }
+
+    fn adjust_param_by(&mut self, direction: i32, fine: bool) {
         let params = match self.graph_params.get(self.graph_cursor) {
             Some(p) if !p.is_empty() => p,
             _ => return,
@@ -404,10 +431,16 @@ impl App {
             Some(v) => v,
             None => return,
         };
-        let range = desc.max - desc.min;
-        let step = range * fraction;
+
+        let base_step = if desc.step > 0.0 {
+            desc.step
+        } else {
+            (desc.max - desc.min) * 0.01
+        };
+        let step = if fine { base_step * 0.1 } else { base_step };
+
         let old = values[self.param_cursor];
-        let new_val = (old + step).clamp(desc.min, desc.max);
+        let new_val = (old + step * direction as f64).clamp(desc.min, desc.max);
         values[self.param_cursor] = new_val;
 
         let node_id = self.graph_nodes[self.graph_cursor].0;
@@ -416,6 +449,26 @@ impl App {
             param_id: desc.id,
             value: new_val,
         });
+
+        if !self.playing {
+            self.fire_param_preview();
+        }
+    }
+
+    /// Sends a short preview note so the user hears parameter changes even
+    /// when the transport is stopped. The note flows through the full graph
+    /// chain (synths → bus → FX → master), making all node tweaks audible.
+    fn fire_param_preview(&mut self) {
+        let voice = self.voice_ids.first().copied().unwrap_or(0);
+        if let Some((old, _)) = self.preview_note_off.take() {
+            self.bridge.send(Command::NoteOff { voice: old });
+        }
+        self.bridge.send(Command::NoteOn {
+            frequency: 440.0,
+            velocity: 0.6,
+            voice,
+        });
+        self.preview_note_off = Some((voice, Instant::now()));
     }
 
     fn next_rng(&mut self) -> u64 {
@@ -610,6 +663,7 @@ impl App {
                 scale_name: &self.scale_name,
                 octave: self.octave,
                 swing: self.swing,
+                bottom_pane: self.bottom_pane,
             },
             outer[0],
         );
@@ -661,6 +715,7 @@ impl App {
             View::Graph => {
                 let params = self.graph_params.get(self.graph_cursor);
                 let values = self.graph_param_values.get(self.graph_cursor);
+                let groups = self.graph_param_groups.get(self.graph_cursor);
                 frame.render_widget(
                     GraphViewWidget {
                         nodes: &self.graph_nodes,
@@ -668,6 +723,7 @@ impl App {
                         selected: self.graph_cursor,
                         params: params.map(|p| p.as_slice()),
                         param_values: values.map(|v| v.as_slice()),
+                        param_groups: groups.map(|g| g.as_slice()),
                         param_cursor: if self.mode == Mode::Edit {
                             Some(self.param_cursor)
                         } else {
@@ -679,12 +735,24 @@ impl App {
             }
         }
 
-        frame.render_widget(
-            ScopeView {
-                samples: &self.scope_buf,
-            },
-            outer[2],
-        );
+        match self.bottom_pane {
+            BottomPane::Waveform => {
+                frame.render_widget(
+                    ScopeView {
+                        samples: &self.scope_buf,
+                    },
+                    outer[2],
+                );
+            }
+            BottomPane::Spectrum => {
+                frame.render_widget(
+                    SpectrumView {
+                        samples: &self.scope_buf,
+                    },
+                    outer[2],
+                );
+            }
+        }
     }
 
     /// Terminal main loop until quit: render, handle keys, poll notifications.

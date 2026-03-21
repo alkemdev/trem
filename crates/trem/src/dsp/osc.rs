@@ -3,7 +3,9 @@
 //! PolyBLEP reduces aliasing on discontinuous shapes so pitched sources stay cleaner at high frequencies.
 
 use crate::event::GraphEvent;
-use crate::graph::{ProcessContext, Processor, ProcessorInfo};
+use crate::graph::{
+    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+};
 use std::f64::consts::PI;
 
 /// Basic periodic shape emitted by [`Oscillator`]; each variant uses the same phase accumulator
@@ -24,6 +26,7 @@ pub enum Waveform {
 pub struct Oscillator {
     pub waveform: Waveform,
     pub frequency: f64,
+    pub detune: f64,
     pub voice_id: Option<u32>,
     phase: f64,
     sample_rate: f64,
@@ -35,6 +38,7 @@ impl Oscillator {
         Self {
             waveform,
             frequency: 440.0,
+            detune: 0.0,
             voice_id: None,
             phase: 0.0,
             sample_rate: 44100.0,
@@ -61,7 +65,8 @@ impl Oscillator {
     }
 
     fn generate_sample(&mut self) -> f32 {
-        let dt = self.frequency / self.sample_rate;
+        let freq = self.frequency * 2.0_f64.powf(self.detune / 12.0);
+        let dt = freq / self.sample_rate;
         let p = self.phase;
 
         let sample = match self.waveform {
@@ -129,6 +134,34 @@ impl Processor for Oscillator {
 
     fn reset(&mut self) {
         self.phase = 0.0;
+    }
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![ParamDescriptor {
+            id: 0,
+            name: "Detune",
+            min: -24.0,
+            max: 24.0,
+            default: 0.0,
+            unit: ParamUnit::Semitones,
+            flags: ParamFlags::BIPOLAR,
+            step: 0.1,
+            group: None,
+        }]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.detune,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.detune = value.clamp(-24.0, 24.0),
+            _ => {}
+        }
     }
 }
 

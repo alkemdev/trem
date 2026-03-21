@@ -4,5 +4,27 @@ version = "0.1.0"
 edition = "2021"
 description = "A mathematical music engine — rational time, xenharmonic pitch, recursive trees, audio graphs"
 
+[features]
+serde = ["dep:serde", "num-rational/serde"]
+
 [dependencies]
 bitflags = "2"
+num-integer = "0.1.46"
+num-rational = "0.4.2"
+num-traits = "0.2.19"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+divan = "0.1.21"
+
+[[bench]]
+name = "core"
+harness = false
+
+[[bench]]
+name = "dsp"
+harness = false
+
+[[bench]]
+name = "graph"
+harness = false

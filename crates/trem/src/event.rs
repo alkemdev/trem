@@ -9,6 +9,7 @@ use crate::math::Rational;
 /// Uses integer degree (into the active scale) rather than Hz or MIDI numbers.
 /// The scale resolves degree → Pitch → Hz at render time.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NoteEvent {
     /// Scale degree (0-indexed). Can be negative for degrees below the reference.
     pub degree: i32,

@@ -6,8 +6,8 @@ use crossterm::{
 use std::io;
 
 use trem::dsp::{
-    Adsr, Gain, HatSynth, KickSynth, Oscillator, ParametricEq, PlateReverb, SnareSynth,
-    StereoDelay, StereoMixer, Waveform,
+    analog_voice, Gain, HatSynth, KickSynth, ParametricEq, PlateReverb, SnareSynth, StereoDelay,
+    StereoMixer,
 };
 use trem::event::NoteEvent;
 use trem::graph::{Graph, Processor};
@@ -24,19 +24,35 @@ fn main() -> Result<()> {
     // --- Build audio graph ---
     let mut graph = Graph::new(512);
 
-    // Lead: plucky triangle arpeggio — fast attack, short decay, low sustain
-    let osc1 = graph.add_node(Box::new(Oscillator::new(Waveform::Triangle).with_voice(0)));
-    let adsr1 = graph.add_node(Box::new(Adsr::new(0.003, 0.12, 0.15, 0.08).with_voice(0)));
+    // Lead synth: bright dual-osc, plucky envelope, slight pan right
+    let mut lead_synth = analog_voice(0, 512);
+    lead_synth.set_param(0, 0.12); // Detune: +0.12 st (chorus)
+    lead_synth.set_param(1, 0.4); // Osc Mix: favor saw
+    lead_synth.set_param(2, 3200.0); // Cutoff: bright
+    lead_synth.set_param(3, 1.8); // Resonance: slight bite
+    lead_synth.set_param(4, 0.003); // Attack: plucky
+    lead_synth.set_param(5, 0.15); // Decay: short
+    lead_synth.set_param(6, 0.2); // Sustain: low
+    lead_synth.set_param(7, 0.12); // Release: tight
+    lead_synth.set_param(8, 0.8); // Level
+    let lead = graph.add_node(Box::new(lead_synth));
     let gain1 = graph.add_node(Box::new(Gain::with_pan(0.70, 0.15)));
-    graph.connect(osc1, 0, adsr1, 0);
-    graph.connect(adsr1, 0, gain1, 0);
+    graph.connect(lead, 0, gain1, 0);
 
-    // Bass: warm saw with longer sustain for body
-    let osc2 = graph.add_node(Box::new(Oscillator::new(Waveform::Saw).with_voice(1)));
-    let adsr2 = graph.add_node(Box::new(Adsr::new(0.008, 0.2, 0.55, 0.12).with_voice(1)));
+    // Bass synth: dark filtered sub, no detune, longer release
+    let mut bass_synth = analog_voice(1, 512);
+    bass_synth.set_param(0, 0.0); // Detune: none (tight)
+    bass_synth.set_param(1, 0.25); // Osc Mix: mostly saw
+    bass_synth.set_param(2, 600.0); // Cutoff: dark
+    bass_synth.set_param(3, 2.5); // Resonance: round
+    bass_synth.set_param(4, 0.008); // Attack: soft onset
+    bass_synth.set_param(5, 0.25); // Decay
+    bass_synth.set_param(6, 0.5); // Sustain: warm hold
+    bass_synth.set_param(7, 0.18); // Release
+    bass_synth.set_param(8, 0.5); // Level
+    let bass = graph.add_node(Box::new(bass_synth));
     let gain2 = graph.add_node(Box::new(Gain::new(0.10)));
-    graph.connect(osc2, 0, adsr2, 0);
-    graph.connect(adsr2, 0, gain2, 0);
+    graph.connect(bass, 0, gain2, 0);
 
     // Kick — punchy, center
     let kick = graph.add_node(Box::new(KickSynth::new(2)));
@@ -102,11 +118,9 @@ fn main() -> Result<()> {
 
     // --- Graph topology snapshot ---
     let graph_nodes: Vec<(u32, String)> = vec![
-        (osc1, "Lead Osc".into()),
-        (adsr1, "Lead Env".into()),
+        (lead, "Lead Synth".into()),
         (gain1, "Lead Gain".into()),
-        (osc2, "Bass Osc".into()),
-        (adsr2, "Bass Env".into()),
+        (bass, "Bass Synth".into()),
         (gain2, "Bass Gain".into()),
         (kick, "Kick".into()),
         (kick_gain, "Kick Gain".into()),

@@ -1,7 +1,8 @@
 //! Schroeder-style “plate” stereo reverb: parallel combs per channel, then allpass diffusion, dry/wet blend.
 
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
+    ProcessorInfo,
 };
 
 /// Schroeder reverb with 4 comb filters and 2 allpass filters per channel.
@@ -156,6 +157,8 @@ impl Processor for PlateReverb {
                 default: 0.5,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: Some(0),
             },
             ParamDescriptor {
                 id: 1,
@@ -165,6 +168,8 @@ impl Processor for PlateReverb {
                 default: 0.5,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: Some(0),
             },
             ParamDescriptor {
                 id: 2,
@@ -174,8 +179,18 @@ impl Processor for PlateReverb {
                 default: 0.2,
                 unit: ParamUnit::Percent,
                 flags: ParamFlags::NONE,
+                step: 0.05,
+                group: Some(0),
             },
         ]
+    }
+
+    fn param_groups(&self) -> Vec<ParamGroup> {
+        vec![ParamGroup {
+            id: 0,
+            name: "Reverb",
+            hint: GroupHint::TimeBased,
+        }]
     }
 
     fn get_param(&self, id: u32) -> f64 {

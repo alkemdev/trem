@@ -1,7 +1,8 @@
 //! Three peaking bands per channel, cascaded for broad tone control on a stereo bus.
 
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
+    ProcessorInfo,
 };
 use std::f64::consts::PI;
 
@@ -187,6 +188,7 @@ impl Processor for ParametricEq {
         let mut p = Vec::with_capacity(9);
         for band in 0..3 {
             let base = band as u32 * 3;
+            let gid = Some(band as u32);
             p.push(ParamDescriptor {
                 id: base,
                 name: match band {
@@ -199,6 +201,8 @@ impl Processor for ParametricEq {
                 default: self.bands[band].freq,
                 unit: ParamUnit::Hertz,
                 flags: ParamFlags::LOG_SCALE,
+                step: 50.0,
+                group: gid,
             });
             p.push(ParamDescriptor {
                 id: base + 1,
@@ -212,6 +216,8 @@ impl Processor for ParametricEq {
                 default: 0.0,
                 unit: ParamUnit::Decibels,
                 flags: ParamFlags::BIPOLAR,
+                step: 0.5,
+                group: gid,
             });
             p.push(ParamDescriptor {
                 id: base + 2,
@@ -225,9 +231,31 @@ impl Processor for ParametricEq {
                 default: 0.707,
                 unit: ParamUnit::Linear,
                 flags: ParamFlags::LOG_SCALE,
+                step: 0.1,
+                group: gid,
             });
         }
         p
+    }
+
+    fn param_groups(&self) -> Vec<ParamGroup> {
+        vec![
+            ParamGroup {
+                id: 0,
+                name: "Lo Band",
+                hint: GroupHint::Filter,
+            },
+            ParamGroup {
+                id: 1,
+                name: "Mid Band",
+                hint: GroupHint::Filter,
+            },
+            ParamGroup {
+                id: 2,
+                name: "Hi Band",
+                hint: GroupHint::Filter,
+            },
+        ]
     }
 
     fn get_param(&self, id: u32) -> f64 {

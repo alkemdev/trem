@@ -10,6 +10,7 @@ use crate::tree::Tree;
 /// Rows are time divisions, columns are polyphony voices.
 /// The grid owns its data as a flat vec and can rebuild a Tree on demand.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Grid {
     /// Number of time rows.
     pub rows: u32,

@@ -40,6 +40,40 @@ pub struct ParamDescriptor {
     pub unit: ParamUnit,
     /// Knob curve and range shape hints.
     pub flags: ParamFlags,
+    /// Coarse nudge increment for arrow-key editing. UIs use `step / 10` for
+    /// fine adjustments. Zero means "let the UI pick a sensible default".
+    pub step: f64,
+    /// Which [`ParamGroup`] this parameter belongs to, if any.
+    pub group: Option<u32>,
+}
+
+/// A named group of related parameters with a visualization hint.
+///
+/// Processors declare groups via [`Processor::param_groups`]; the group `id`
+/// matches the `group` field on individual [`ParamDescriptor`]s. UIs use the
+/// [`GroupHint`] to decide what kind of preview widget to render.
+#[derive(Clone, Debug)]
+pub struct ParamGroup {
+    pub id: u32,
+    pub name: &'static str,
+    pub hint: GroupHint,
+}
+
+/// Tells the UI what kind of mini-visualization to show for a parameter group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroupHint {
+    /// No special visualization — just a labeled section.
+    Generic,
+    /// ADSR envelope shape (expects Attack, Decay, Sustain, Release params).
+    Envelope,
+    /// Frequency response curve (expects Cutoff, Resonance params).
+    Filter,
+    /// Waveform shape (expects waveform type / detune params).
+    Oscillator,
+    /// Time-domain effect (delay lines, reverb tails).
+    TimeBased,
+    /// Single level / gain control.
+    Level,
 }
 
 /// Display/scaling hint for a parameter value.
@@ -117,6 +151,11 @@ pub trait Processor: Send {
 
     /// Enumerate all controllable parameters.
     fn params(&self) -> Vec<ParamDescriptor> {
+        vec![]
+    }
+
+    /// Declare parameter groups for structured UI rendering.
+    fn param_groups(&self) -> Vec<ParamGroup> {
         vec![]
     }
 
@@ -392,6 +431,14 @@ impl Graph {
         }
     }
 
+    /// Delegates to [`Processor::param_groups`]; unknown or empty slots return an empty vec.
+    pub fn node_param_groups(&self, node: NodeId) -> Vec<ParamGroup> {
+        match self.nodes.get(node as usize) {
+            Some(Some(ref p)) => p.param_groups(),
+            _ => vec![],
+        }
+    }
+
     /// Reads [`Processor::get_param`]; missing nodes return `0.0`.
     pub fn node_param_value(&self, node: NodeId, param_id: u32) -> f64 {
         match self.nodes.get(node as usize) {
@@ -407,12 +454,12 @@ impl Graph {
         }
     }
 
-    /// Snapshot all parameter descriptors and current values for every node.
+    /// Snapshot all parameter descriptors, groups, and current values for every node.
     /// Returns one entry per node-index in `graph_nodes` order.
     pub fn snapshot_all_params(
         &self,
         node_ids: &[NodeId],
-    ) -> Vec<(Vec<ParamDescriptor>, Vec<f64>)> {
+    ) -> Vec<(Vec<ParamDescriptor>, Vec<f64>, Vec<ParamGroup>)> {
         node_ids
             .iter()
             .map(|&id| {
@@ -421,7 +468,8 @@ impl Graph {
                     .iter()
                     .map(|d| self.node_param_value(id, d.id))
                     .collect();
-                (descs, vals)
+                let groups = self.node_param_groups(id);
+                (descs, vals, groups)
             })
             .collect()
     }

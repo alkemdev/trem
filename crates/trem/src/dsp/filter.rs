@@ -2,7 +2,10 @@
 //!
 //! Coefficients follow the host sample rate; [`BiquadFilter`] recomputes when the rate changes.
 
-use crate::graph::{ProcessContext, Processor, ProcessorInfo};
+use crate::graph::{
+    GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
+    ProcessorInfo,
+};
 use std::f64::consts::PI;
 
 /// Which spectral region the biquad emphasizes or passes; drives coefficient choice in [`BiquadFilter::new`].
@@ -138,5 +141,62 @@ impl Processor for BiquadFilter {
         self.x2 = 0.0;
         self.y1 = 0.0;
         self.y2 = 0.0;
+    }
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![
+            ParamDescriptor {
+                id: 0,
+                name: "Cutoff",
+                min: 20.0,
+                max: 20000.0,
+                default: 1000.0,
+                unit: ParamUnit::Hertz,
+                flags: ParamFlags::LOG_SCALE,
+                step: 50.0,
+                group: Some(0),
+            },
+            ParamDescriptor {
+                id: 1,
+                name: "Resonance",
+                min: 0.1,
+                max: 20.0,
+                default: 0.707,
+                unit: ParamUnit::Linear,
+                flags: ParamFlags::LOG_SCALE,
+                step: 0.1,
+                group: Some(0),
+            },
+        ]
+    }
+
+    fn param_groups(&self) -> Vec<ParamGroup> {
+        vec![ParamGroup {
+            id: 0,
+            name: "Filter",
+            hint: GroupHint::Filter,
+        }]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.frequency,
+            1 => self.q,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => {
+                self.frequency = value.clamp(20.0, 20000.0);
+                self.dirty = true;
+            }
+            1 => {
+                self.q = value.clamp(0.1, 20.0);
+                self.dirty = true;
+            }
+            _ => {}
+        }
     }
 }

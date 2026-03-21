@@ -21,7 +21,7 @@ impl Pitch {
 
     /// Pitch from a rational frequency ratio.
     pub fn from_rational(r: Rational) -> Self {
-        Self::from_ratio(r.num as f64, r.den as f64)
+        Self::from_ratio(r.numer() as f64, r.denom() as f64)
     }
 
     /// Pitch from cents (1200 cents = 1 octave).

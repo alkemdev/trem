@@ -1,23 +1,10 @@
 //! Save/load project state to JSON files.
 //!
-//! Serializes only the editable musical state: grid cells, BPM, swing, octave,
-//! and graph parameter overrides. The audio graph topology and scale are
-//! reconstructed from the binary on load.
+//! Core types (`Grid`, `NoteEvent`, `Rational`) derive `Serialize`/`Deserialize`
+//! via the `serde` feature on `trem`, so the grid round-trips directly.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use trem::event::NoteEvent;
-use trem::math::Rational;
-
-#[derive(Serialize, Deserialize)]
-struct CellData {
-    deg: i32,
-    oct: i32,
-    vel_n: i64,
-    vel_d: u64,
-    gate_n: i64,
-    gate_d: u64,
-}
 
 #[derive(Serialize, Deserialize)]
 struct ParamOverride {
@@ -31,30 +18,12 @@ pub struct ProjectData {
     pub bpm: f64,
     pub swing: f64,
     pub octave: i32,
-    pub rows: u32,
-    pub columns: u32,
-    cells: Vec<Option<CellData>>,
+    grid: trem::grid::Grid,
     param_overrides: Vec<ParamOverride>,
 }
 
 impl ProjectData {
     pub fn from_app(app: &crate::App) -> Self {
-        let cells: Vec<Option<CellData>> = app
-            .grid
-            .cells
-            .iter()
-            .map(|cell| {
-                cell.as_ref().map(|n| CellData {
-                    deg: n.degree,
-                    oct: n.octave,
-                    vel_n: n.velocity.num,
-                    vel_d: n.velocity.den,
-                    gate_n: n.gate.num,
-                    gate_d: n.gate.den,
-                })
-            })
-            .collect();
-
         let mut param_overrides = Vec::new();
         for (node_idx, values) in app.graph_param_values.iter().enumerate() {
             let descs = match app.graph_params.get(node_idx) {
@@ -78,9 +47,7 @@ impl ProjectData {
             bpm: app.bpm,
             swing: app.swing,
             octave: app.octave,
-            rows: app.grid.rows,
-            columns: app.grid.columns,
-            cells,
+            grid: app.grid.clone(),
             param_overrides,
         }
     }
@@ -90,15 +57,8 @@ impl ProjectData {
         app.swing = self.swing;
         app.octave = self.octave;
 
-        if app.grid.rows == self.rows && app.grid.columns == self.columns {
-            for (i, cell) in self.cells.iter().enumerate() {
-                if i < app.grid.cells.len() {
-                    app.grid.cells[i] = cell.as_ref().map(|c| {
-                        NoteEvent::new(c.deg, c.oct, Rational::new(c.vel_n, c.vel_d))
-                            .with_gate(Rational::new(c.gate_n, c.gate_d))
-                    });
-                }
-            }
+        if app.grid.rows == self.grid.rows && app.grid.columns == self.grid.columns {
+            app.grid = self.grid.clone();
         }
 
         for ov in &self.param_overrides {

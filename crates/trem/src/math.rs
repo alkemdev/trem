@@ -1,131 +1,82 @@
-//! Exact arithmetic for time and rhythm: least common multiple and reduced rationals.
+//! Exact arithmetic for time and rhythm backed by [`num_rational::Rational64`].
 //!
-//! [`Rational`] keeps fractions in lowest terms so comparisons and tempo math stay stable
-//! without floating-point drift.
+//! [`Rational`] is a newtype wrapper preserving the trem API (unsigned denominator
+//! constructor, `to_f64`, integer `floor`/`ceil`) while delegating all math to
+//! the battle-tested `num-rational` crate.
 
+use num_traits::ToPrimitive;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-fn gcd(mut a: u64, mut b: u64) -> u64 {
-    while b != 0 {
-        let t = b;
-        b = a % b;
-        a = t;
-    }
-    a
-}
-
 /// Smallest positive integer divisible by both `a` and `b`; returns `0` if either input is zero.
 pub fn lcm(a: u64, b: u64) -> u64 {
-    if a == 0 || b == 0 {
-        0
-    } else {
-        a / gcd(a, b) * b
-    }
+    num_integer::lcm(a, b)
 }
 
-/// Exact rational number p/q, always in lowest terms with q > 0.
+/// Exact rational number, always in lowest terms.
+///
+/// Thin wrapper around [`num_rational::Rational64`] that keeps the original trem
+/// constructor signature (`num: i64, den: u64`) and convenience methods.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct Rational {
-    pub num: i64,
-    pub den: u64,
-}
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+pub struct Rational(num_rational::Rational64);
 
 impl Rational {
-    /// Builds a reduced fraction `num/den`. Panics if `den == 0`. Zero always uses denominator `1`.
     pub fn new(num: i64, den: u64) -> Self {
-        assert!(den != 0, "Rational denominator must be nonzero");
-        if num == 0 {
-            return Self { num: 0, den: 1 };
-        }
-        let g = gcd(num.unsigned_abs(), den);
-        Self {
-            num: num / g as i64,
-            den: den / g,
-        }
+        debug_assert!(den <= i64::MAX as u64, "denominator overflows i64");
+        Self(num_rational::Rational64::new(num, den as i64))
     }
 
-    /// Whole number `n/1` without normalization work beyond storing `n`.
     pub fn integer(n: i64) -> Self {
-        Self { num: n, den: 1 }
+        Self(num_rational::Rational64::from_integer(n))
     }
 
-    /// The additive identity `0/1`.
     pub fn zero() -> Self {
-        Self { num: 0, den: 1 }
+        Self(num_rational::Rational64::from_integer(0))
     }
 
-    /// The multiplicative identity `1/1`.
     pub fn one() -> Self {
-        Self { num: 1, den: 1 }
+        Self(num_rational::Rational64::from_integer(1))
     }
 
-    /// `true` when the numerator is zero (denominator is always normalized to `1` for zero).
     pub fn is_zero(self) -> bool {
-        self.num == 0
+        *self.0.numer() == 0
     }
 
-    /// `true` when the value is strictly greater than zero.
     pub fn is_positive(self) -> bool {
-        self.num > 0
+        *self.0.numer() > 0
     }
 
-    /// `true` when the value is strictly less than zero.
     pub fn is_negative(self) -> bool {
-        self.num < 0
+        *self.0.numer() < 0
     }
 
-    /// Absolute value; denominator stays positive.
     pub fn abs(self) -> Self {
-        Self {
-            num: self.num.abs(),
-            den: self.den,
+        if self.is_negative() {
+            -self
+        } else {
+            self
         }
     }
 
-    /// Multiplicative inverse, normalized. Panics if `self` is zero.
     pub fn recip(self) -> Self {
-        assert!(self.num != 0, "Cannot take reciprocal of zero");
-        if self.num > 0 {
-            Self::new(self.den as i64, self.num as u64)
-        } else {
-            Self::new(-(self.den as i64), (-self.num) as u64)
-        }
+        Self(self.0.recip())
     }
 
-    /// Greatest integer ≤ this value (toward −∞), matching Rust’s `f64::floor` semantics on rationals.
     pub fn floor(self) -> i64 {
-        if self.den == 1 {
-            return self.num;
-        }
-        let d = self.den as i64;
-        if self.num >= 0 {
-            self.num / d
-        } else {
-            (self.num - d + 1) / d
-        }
+        self.0.floor().to_integer()
     }
 
-    /// Smallest integer ≥ this value (toward +∞).
     pub fn ceil(self) -> i64 {
-        if self.den == 1 {
-            return self.num;
-        }
-        let d = self.den as i64;
-        if self.num >= 0 {
-            (self.num + d - 1) / d
-        } else {
-            self.num / d
-        }
+        self.0.ceil().to_integer()
     }
 
-    /// Approximate value; may not be exactly representable as `f64`.
     pub fn to_f64(self) -> f64 {
-        self.num as f64 / self.den as f64
+        self.0.to_f64().unwrap_or(0.0)
     }
 
-    /// The smaller of `self` and `other` by [`Ord`].
     pub fn min(self, other: Self) -> Self {
         if self <= other {
             self
@@ -134,13 +85,22 @@ impl Rational {
         }
     }
 
-    /// The larger of `self` and `other` by [`Ord`].
     pub fn max(self, other: Self) -> Self {
         if self >= other {
             self
         } else {
             other
         }
+    }
+
+    /// Numerator (signed).
+    pub fn numer(self) -> i64 {
+        *self.0.numer()
+    }
+
+    /// Denominator (always positive after reduction).
+    pub fn denom(self) -> i64 {
+        *self.0.denom()
     }
 }
 
@@ -158,10 +118,7 @@ impl From<(i64, u64)> for Rational {
 
 impl Ord for Rational {
     fn cmp(&self, other: &Self) -> Ordering {
-        // a/b vs c/d  →  a*d vs c*b (careful with sign; den is always positive)
-        let lhs = self.num as i128 * other.den as i128;
-        let rhs = other.num as i128 * self.den as i128;
-        lhs.cmp(&rhs)
+        self.0.cmp(&other.0)
     }
 }
 
@@ -174,54 +131,44 @@ impl PartialOrd for Rational {
 impl Neg for Rational {
     type Output = Self;
     fn neg(self) -> Self {
-        Self {
-            num: -self.num,
-            den: self.den,
-        }
+        Self(-self.0)
     }
 }
 
 impl Add for Rational {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        let den = lcm(self.den, rhs.den);
-        let num = self.num * (den / self.den) as i64 + rhs.num * (den / rhs.den) as i64;
-        Self::new(num, den)
+        Self(self.0 + rhs.0)
     }
 }
 
 impl Sub for Rational {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        self + (-rhs)
+        Self(self.0 - rhs.0)
     }
 }
 
 impl Mul for Rational {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self {
-        // Cross-reduce before multiplying to avoid overflow
-        let g1 = gcd(self.num.unsigned_abs(), rhs.den);
-        let g2 = gcd(rhs.num.unsigned_abs(), self.den);
-        let num = (self.num / g1 as i64) * (rhs.num / g2 as i64);
-        let den = (self.den / g2) * (rhs.den / g1);
-        Self::new(num, den)
+        Self(self.0 * rhs.0)
     }
 }
 
 impl Div for Rational {
     type Output = Self;
     fn div(self, rhs: Self) -> Self {
-        self * rhs.recip()
+        Self(self.0 / rhs.0)
     }
 }
 
 impl fmt::Display for Rational {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.den == 1 {
-            write!(f, "{}", self.num)
+        if *self.0.denom() == 1 {
+            write!(f, "{}", self.0.numer())
         } else {
-            write!(f, "{}/{}", self.num, self.den)
+            write!(f, "{}/{}", self.0.numer(), self.0.denom())
         }
     }
 }
@@ -239,8 +186,8 @@ mod tests {
     #[test]
     fn reduction() {
         let r = Rational::new(6, 4);
-        assert_eq!(r.num, 3);
-        assert_eq!(r.den, 2);
+        assert_eq!(r.numer(), 3);
+        assert_eq!(r.denom(), 2);
     }
 
     #[test]
