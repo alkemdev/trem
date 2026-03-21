@@ -5,6 +5,7 @@
 //!
 //! Full bindings: **`?`** help overlay. Sidebar shows a short **popular** subset only.
 
+#[cfg(not(target_arch = "wasm32"))]
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 /// Which **editor surface** is focused (modal). Tab cycles this list.
@@ -144,57 +145,86 @@ pub enum Action {
     ToggleHelp,
 }
 
-/// Maps a key to an action; release events and unbound keys yield `None`.
-pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
-    if key.kind == KeyEventKind::Release {
-        return None;
-    }
+/// Backend-neutral key code used by [`handle_key_event`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppKeyCode {
+    Char(char),
+    F(u8),
+    Backspace,
+    Enter,
+    Left,
+    Right,
+    Up,
+    Down,
+    Tab,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Esc,
+    Unknown,
+}
 
+/// Backend-neutral key event used by [`handle_key_event`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppKeyEvent {
+    pub code: AppKeyCode,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+}
+
+/// Maps a backend-neutral key to an action; unbound keys yield `None`.
+pub fn handle_key_event(key: AppKeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
     if ctx.help_open {
         return match key.code {
-            KeyCode::Esc | KeyCode::Char('?') => Some(Action::ToggleHelp),
+            AppKeyCode::Esc | AppKeyCode::Char('?') => Some(Action::ToggleHelp),
             _ => None,
         };
     }
 
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
+    if key.ctrl {
         return match key.code {
-            KeyCode::Char('c') | KeyCode::Char('q') => Some(Action::Quit),
-            KeyCode::Char('s') => Some(Action::SaveProject),
-            KeyCode::Char('o') => Some(Action::LoadProject),
-            KeyCode::Char('z') => Some(Action::Undo),
-            KeyCode::Char('y') => Some(Action::Redo),
+            AppKeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'c') => Some(Action::Quit),
+            AppKeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'q') => Some(Action::Quit),
+            AppKeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'s') => Some(Action::SaveProject),
+            AppKeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'o') => Some(Action::LoadProject),
+            AppKeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'z') => Some(Action::Undo),
+            AppKeyCode::Char(ch) if ch.eq_ignore_ascii_case(&'y') => Some(Action::Redo),
             _ => None,
         };
     }
 
-    if key.modifiers.contains(KeyModifiers::SHIFT) {
+    if key.shift {
         match key.code {
-            KeyCode::Left => return Some(Action::ParamFineDown),
-            KeyCode::Right => return Some(Action::ParamFineUp),
-            KeyCode::Char('U') => return Some(Action::Redo),
+            AppKeyCode::Left => return Some(Action::ParamFineDown),
+            AppKeyCode::Right => return Some(Action::ParamFineUp),
+            AppKeyCode::Char('U') | AppKeyCode::Char('u') => return Some(Action::Redo),
             _ => {}
         }
     }
 
     match key.code {
-        KeyCode::Tab => return Some(Action::CycleEditor),
-        KeyCode::Char('?') => return Some(Action::ToggleHelp),
-        KeyCode::Char(' ') => return Some(Action::TogglePlay),
-        KeyCode::Up => return Some(Action::MoveUp),
-        KeyCode::Down => return Some(Action::MoveDown),
-        KeyCode::Left => return Some(Action::MoveLeft),
-        KeyCode::Right => return Some(Action::MoveRight),
-        KeyCode::Char('+') | KeyCode::Char('=') => return Some(Action::BpmUp),
-        KeyCode::Char('-') => return Some(Action::BpmDown),
-        KeyCode::Char('[') => return Some(Action::OctaveDown),
-        KeyCode::Char(']') => return Some(Action::OctaveUp),
-        KeyCode::Char('{') => return Some(Action::SwingDown),
-        KeyCode::Char('}') => return Some(Action::SwingUp),
-        KeyCode::Char('`') => return Some(Action::CycleBottomPane),
-        KeyCode::Esc if *ctx.mode == Mode::Edit => return Some(Action::ToggleEdit),
-        KeyCode::Esc
-            if *ctx.mode == Mode::Normal && ctx.editor == Editor::Graph && ctx.graph_is_nested =>
+        AppKeyCode::Tab => return Some(Action::CycleEditor),
+        AppKeyCode::Char('?') => return Some(Action::ToggleHelp),
+        AppKeyCode::Char(' ') => return Some(Action::TogglePlay),
+        AppKeyCode::Up => return Some(Action::MoveUp),
+        AppKeyCode::Down => return Some(Action::MoveDown),
+        AppKeyCode::Left => return Some(Action::MoveLeft),
+        AppKeyCode::Right => return Some(Action::MoveRight),
+        AppKeyCode::Char('+') | AppKeyCode::Char('=') => return Some(Action::BpmUp),
+        AppKeyCode::Char('-') => return Some(Action::BpmDown),
+        AppKeyCode::Char('[') => return Some(Action::OctaveDown),
+        AppKeyCode::Char(']') => return Some(Action::OctaveUp),
+        AppKeyCode::Char('{') => return Some(Action::SwingDown),
+        AppKeyCode::Char('}') => return Some(Action::SwingUp),
+        AppKeyCode::Char('`') => return Some(Action::CycleBottomPane),
+        AppKeyCode::Esc if *ctx.mode == Mode::Edit => return Some(Action::ToggleEdit),
+        AppKeyCode::Esc
+            if *ctx.mode == Mode::Normal
+                && ctx.editor == Editor::Graph
+                && ctx.graph_is_nested =>
         {
             return Some(Action::ExitGraph);
         }
@@ -202,66 +232,106 @@ pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
     }
 
     match ctx.editor {
-        Editor::Pattern => pattern_keys(key.code, ctx.mode),
-        Editor::Graph => graph_keys(key.code, ctx.mode),
+        Editor::Pattern => pattern_keys(&key, ctx.mode),
+        Editor::Graph => graph_keys(&key, ctx.mode),
     }
 }
 
-fn pattern_keys(code: KeyCode, mode: &Mode) -> Option<Action> {
+fn pattern_keys(key: &AppKeyEvent, mode: &Mode) -> Option<Action> {
     match mode {
-        Mode::Normal => match code {
-            KeyCode::Char('q') => Some(Action::Quit),
-            KeyCode::Enter => Some(Action::OpenPatternRoll),
-            KeyCode::Char('e') => Some(Action::ToggleEdit),
-            KeyCode::Char('u') => Some(Action::Undo),
-            KeyCode::Char('h') => Some(Action::MoveLeft),
-            KeyCode::Char('l') => Some(Action::MoveRight),
-            KeyCode::Char('k') => Some(Action::MoveUp),
-            KeyCode::Char('j') => Some(Action::MoveDown),
+        Mode::Normal => match key.code {
+            AppKeyCode::Char('q') => Some(Action::Quit),
+            AppKeyCode::Enter => Some(Action::OpenPatternRoll),
+            AppKeyCode::Char('e') => Some(Action::ToggleEdit),
+            AppKeyCode::Char('u') => Some(Action::Undo),
+            AppKeyCode::Char('h') => Some(Action::MoveLeft),
+            AppKeyCode::Char('l') => Some(Action::MoveRight),
+            AppKeyCode::Char('k') => Some(Action::MoveUp),
+            AppKeyCode::Char('j') => Some(Action::MoveDown),
             _ => None,
         },
-        Mode::Edit => match code {
-            KeyCode::Enter => Some(Action::ToggleEdit),
-            KeyCode::Delete | KeyCode::Backspace => Some(Action::DeleteNote),
-            KeyCode::Char('z') => Some(Action::NoteInput(0)),
-            KeyCode::Char('s') => Some(Action::NoteInput(1)),
-            KeyCode::Char('x') => Some(Action::NoteInput(2)),
-            KeyCode::Char('d') => Some(Action::NoteInput(3)),
-            KeyCode::Char('c') => Some(Action::NoteInput(4)),
-            KeyCode::Char('v') => Some(Action::NoteInput(5)),
-            KeyCode::Char('g') => Some(Action::NoteInput(6)),
-            KeyCode::Char('b') => Some(Action::NoteInput(7)),
-            KeyCode::Char('h') => Some(Action::NoteInput(8)),
-            KeyCode::Char('n') => Some(Action::NoteInput(9)),
-            KeyCode::Char('j') => Some(Action::NoteInput(10)),
-            KeyCode::Char('m') => Some(Action::NoteInput(11)),
-            KeyCode::Char(ch @ '0'..='9') => Some(Action::NoteInput(ch as i32 - '0' as i32)),
-            KeyCode::Char('f') => Some(Action::EuclideanFill),
-            KeyCode::Char('r') => Some(Action::RandomizeVoice),
-            KeyCode::Char('t') => Some(Action::ReverseVoice),
-            KeyCode::Char(',') => Some(Action::ShiftVoiceLeft),
-            KeyCode::Char('.') => Some(Action::ShiftVoiceRight),
-            KeyCode::Char('w') => Some(Action::VelocityUp),
-            KeyCode::Char('q') => Some(Action::VelocityDown),
-            KeyCode::Char('a') => Some(Action::GateCycle),
+        Mode::Edit => match key.code {
+            AppKeyCode::Enter => Some(Action::ToggleEdit),
+            AppKeyCode::Delete | AppKeyCode::Backspace => Some(Action::DeleteNote),
+            AppKeyCode::Char('z') => Some(Action::NoteInput(0)),
+            AppKeyCode::Char('s') => Some(Action::NoteInput(1)),
+            AppKeyCode::Char('x') => Some(Action::NoteInput(2)),
+            AppKeyCode::Char('d') => Some(Action::NoteInput(3)),
+            AppKeyCode::Char('c') => Some(Action::NoteInput(4)),
+            AppKeyCode::Char('v') => Some(Action::NoteInput(5)),
+            AppKeyCode::Char('g') => Some(Action::NoteInput(6)),
+            AppKeyCode::Char('b') => Some(Action::NoteInput(7)),
+            AppKeyCode::Char('h') => Some(Action::NoteInput(8)),
+            AppKeyCode::Char('n') => Some(Action::NoteInput(9)),
+            AppKeyCode::Char('j') => Some(Action::NoteInput(10)),
+            AppKeyCode::Char('m') => Some(Action::NoteInput(11)),
+            AppKeyCode::Char(ch @ '0'..='9') => Some(Action::NoteInput(ch as i32 - '0' as i32)),
+            AppKeyCode::Char('f') => Some(Action::EuclideanFill),
+            AppKeyCode::Char('r') => Some(Action::RandomizeVoice),
+            AppKeyCode::Char('t') => Some(Action::ReverseVoice),
+            AppKeyCode::Char(',') => Some(Action::ShiftVoiceLeft),
+            AppKeyCode::Char('.') => Some(Action::ShiftVoiceRight),
+            AppKeyCode::Char('w') => Some(Action::VelocityUp),
+            AppKeyCode::Char('q') => Some(Action::VelocityDown),
+            AppKeyCode::Char('a') => Some(Action::GateCycle),
             _ => None,
         },
     }
 }
 
-fn graph_keys(code: KeyCode, mode: &Mode) -> Option<Action> {
+fn graph_keys(key: &AppKeyEvent, mode: &Mode) -> Option<Action> {
     match mode {
-        Mode::Normal => match code {
-            KeyCode::Char('q') => Some(Action::Quit),
-            KeyCode::Char('e') => Some(Action::ToggleEdit),
-            KeyCode::Char('u') => Some(Action::Undo),
-            KeyCode::Char('h') => Some(Action::MoveLeft),
-            KeyCode::Char('l') => Some(Action::MoveRight),
-            KeyCode::Char('k') => Some(Action::MoveUp),
-            KeyCode::Char('j') => Some(Action::MoveDown),
-            KeyCode::Enter => Some(Action::EnterGraph),
+        Mode::Normal => match key.code {
+            AppKeyCode::Char('q') => Some(Action::Quit),
+            AppKeyCode::Char('e') => Some(Action::ToggleEdit),
+            AppKeyCode::Char('u') => Some(Action::Undo),
+            AppKeyCode::Char('h') => Some(Action::MoveLeft),
+            AppKeyCode::Char('l') => Some(Action::MoveRight),
+            AppKeyCode::Char('k') => Some(Action::MoveUp),
+            AppKeyCode::Char('j') => Some(Action::MoveDown),
+            AppKeyCode::Enter => Some(Action::EnterGraph),
             _ => None,
         },
         Mode::Edit => None,
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn from_crossterm_key(key: KeyEvent) -> Option<AppKeyEvent> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+
+    let code = match key.code {
+        KeyCode::Backspace => AppKeyCode::Backspace,
+        KeyCode::Enter => AppKeyCode::Enter,
+        KeyCode::Left => AppKeyCode::Left,
+        KeyCode::Right => AppKeyCode::Right,
+        KeyCode::Up => AppKeyCode::Up,
+        KeyCode::Down => AppKeyCode::Down,
+        KeyCode::Tab => AppKeyCode::Tab,
+        KeyCode::Delete => AppKeyCode::Delete,
+        KeyCode::Home => AppKeyCode::Home,
+        KeyCode::End => AppKeyCode::End,
+        KeyCode::PageUp => AppKeyCode::PageUp,
+        KeyCode::PageDown => AppKeyCode::PageDown,
+        KeyCode::Esc => AppKeyCode::Esc,
+        KeyCode::F(n) => AppKeyCode::F(n),
+        KeyCode::Char(ch) => AppKeyCode::Char(ch),
+        _ => AppKeyCode::Unknown,
+    };
+
+    Some(AppKeyEvent {
+        code,
+        ctrl: key.modifiers.contains(KeyModifiers::CONTROL),
+        alt: key.modifiers.contains(KeyModifiers::ALT),
+        shift: key.modifiers.contains(KeyModifiers::SHIFT),
+    })
+}
+
+/// Maps a crossterm key to an action; release events and unbound keys yield `None`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
+    let key = from_crossterm_key(key)?;
+    handle_key_event(key, ctx)
 }

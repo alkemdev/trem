@@ -1,5 +1,6 @@
 //! Fullscreen piano roll while editing a [`Clip`] from the step grid.
 
+#[cfg(not(target_arch = "wasm32"))]
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use num_rational::Rational64;
 use ratatui::layout::{Constraint, Layout};
@@ -383,6 +384,7 @@ impl PatternRoll {
         bridge.send(Command::LoadEvents(events));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn handle_key(
         &mut self,
         key: KeyEvent,

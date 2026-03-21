@@ -2,7 +2,9 @@
 //!
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
-use crate::input::{self, Action, BottomPane, Editor, InputContext, Mode};
+use crate::input::{Action, BottomPane, Editor, Mode};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::input::{self, InputContext};
 use crate::project::ProjectData;
 use crate::view::graph::GraphViewWidget;
 use crate::view::help::HelpOverlay;
@@ -19,6 +21,7 @@ use trem::math::Rational;
 use trem::pitch::Pitch;
 use trem_cpal::{Bridge, Command, Notification, ScopeFocus};
 
+#[cfg(not(target_arch = "wasm32"))]
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
@@ -190,10 +193,19 @@ impl App {
             euclidean_k: 0,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
-            rng_state: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64,
+            rng_state: {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    js_sys::Date::now() as u64
+                }
+            },
             preview_note_off: None,
             bottom_pane: BottomPane::Spectrum,
             graph_path: Vec::new(),
@@ -1242,6 +1254,7 @@ impl App {
     }
 
     /// Terminal main loop until quit: render, handle keys, poll notifications.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn run<B>(mut self, terminal: &mut ratatui::Terminal<B>) -> anyhow::Result<()>
     where
         B: ratatui::backend::Backend,

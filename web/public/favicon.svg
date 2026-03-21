@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="512" height="512" fill="white" />
+  
+  <text 
+    x="50%" 
+    y="58%" 
+    dominant-baseline="middle" 
+    text-anchor="middle" 
+    font-size="384" 
+    font-weight="bold"
+    font-family="sans-serif"
+    fill="black"
+  >//</text>
+</svg>
