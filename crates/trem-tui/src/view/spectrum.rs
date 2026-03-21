@@ -15,6 +15,8 @@ const BAR_CHARS: [&str; 8] = [
     "\u{2581}", "\u{2582}", "\u{2583}", "\u{2584}", "\u{2585}", "\u{2586}", "\u{2587}", "\u{2588}",
 ];
 
+/// FFT spectrum analyzer widget. Windowed FFT with logarithmic frequency
+/// binning, rendered as coloured vertical bars.
 pub struct SpectrumView<'a> {
     pub samples: &'a [f32],
 }

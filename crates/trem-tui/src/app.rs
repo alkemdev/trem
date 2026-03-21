@@ -57,6 +57,7 @@ pub struct App {
     pub instrument_names: Vec<String>,
     pub voice_ids: Vec<u32>,
     pub graph_nodes: Vec<(u32, String)>,
+    pub graph_node_descriptions: Vec<String>,
     pub graph_edges: Vec<(u32, u16, u32, u16)>,
     pub graph_cursor: usize,
     pub graph_depths: Vec<usize>,
@@ -72,6 +73,28 @@ pub struct App {
     rng_state: u64,
     preview_note_off: Option<(u32, Instant)>,
     pub bottom_pane: BottomPane,
+    /// Path into nested graphs for the graph editor (empty = root).
+    pub graph_path: Vec<u32>,
+    /// Stack of saved cursor positions when diving into nested graphs.
+    pub graph_stack: Vec<GraphFrame>,
+    /// Tracks which nodes have inner graphs for visual indicators.
+    pub graph_has_children: Vec<bool>,
+    /// Breadcrumb labels for the navigation path.
+    pub graph_breadcrumb: Vec<String>,
+}
+
+/// Saved state when diving into a nested graph node.
+#[derive(Clone, Debug)]
+pub struct GraphFrame {
+    pub nodes: Vec<(u32, String)>,
+    pub edges: Vec<(u32, u16, u32, u16)>,
+    pub cursor: usize,
+    pub params: Vec<Vec<ParamDescriptor>>,
+    pub param_values: Vec<Vec<f64>>,
+    pub param_groups: Vec<Vec<trem::graph::ParamGroup>>,
+    pub depths: Vec<usize>,
+    pub layers: Vec<Vec<usize>>,
+    pub has_children: Vec<bool>,
 }
 
 impl App {
@@ -105,6 +128,7 @@ impl App {
             instrument_names,
             voice_ids,
             graph_nodes: Vec::new(),
+            graph_node_descriptions: Vec::new(),
             graph_edges: Vec::new(),
             graph_cursor: 0,
             graph_depths: Vec::new(),
@@ -123,6 +147,10 @@ impl App {
                 .as_nanos() as u64,
             preview_note_off: None,
             bottom_pane: BottomPane::Waveform,
+            graph_path: Vec::new(),
+            graph_stack: Vec::new(),
+            graph_has_children: Vec::new(),
+            graph_breadcrumb: Vec::new(),
         }
     }
 
@@ -141,7 +169,18 @@ impl App {
         self.graph_params = params.iter().map(|(d, _, _)| d.clone()).collect();
         self.graph_param_values = params.iter().map(|(_, v, _)| v.clone()).collect();
         self.graph_param_groups = params.into_iter().map(|(_, _, g)| g).collect();
+        self.graph_has_children = vec![false; self.graph_nodes.len()];
         self
+    }
+
+    /// Sets processor descriptions for each node (shown in info help).
+    pub fn set_node_descriptions(&mut self, descriptions: Vec<String>) {
+        self.graph_node_descriptions = descriptions;
+    }
+
+    /// Marks which nodes have inner (nested) graphs for the graph view indicator.
+    pub fn set_node_children(&mut self, has_children: Vec<bool>) {
+        self.graph_has_children = has_children;
     }
 
     /// Applies one [`Action`] from input: updates state and sends [`Command`]s to the audio bridge as needed.
@@ -401,6 +440,24 @@ impl App {
             Action::CycleBottomPane => {
                 self.bottom_pane = self.bottom_pane.next();
             }
+            Action::EnterGraph => {
+                if self.view != View::Graph || self.mode != Mode::Normal {
+                    return;
+                }
+                if self.graph_cursor >= self.graph_has_children.len() {
+                    return;
+                }
+                if !self.graph_has_children[self.graph_cursor] {
+                    return;
+                }
+                self.enter_nested_graph();
+            }
+            Action::ExitGraph => {
+                if self.view != View::Graph {
+                    return;
+                }
+                self.exit_nested_graph();
+            }
         }
     }
 
@@ -408,6 +465,27 @@ impl App {
         self.graph_params
             .get(self.graph_cursor)
             .map_or(0, |p| p.len())
+    }
+
+    fn current_node_description(&self) -> &str {
+        if self.view != crate::input::View::Graph {
+            return "";
+        }
+        self.graph_node_descriptions
+            .get(self.graph_cursor)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+
+    fn current_param_help(&self) -> &str {
+        if self.view != crate::input::View::Graph || self.mode != crate::input::Mode::Edit {
+            return "";
+        }
+        self.graph_params
+            .get(self.graph_cursor)
+            .and_then(|params| params.get(self.param_cursor))
+            .map(|p| p.help)
+            .unwrap_or("")
     }
 
     fn adjust_param_coarse(&mut self, direction: i32) {
@@ -444,8 +522,10 @@ impl App {
         values[self.param_cursor] = new_val;
 
         let node_id = self.graph_nodes[self.graph_cursor].0;
+        let mut path = self.graph_path.clone();
+        path.push(node_id);
         self.bridge.send(Command::SetParam {
-            node: node_id,
+            path,
             param_id: desc.id,
             value: new_val,
         });
@@ -561,6 +641,58 @@ impl App {
                     return;
                 }
             }
+        }
+    }
+
+    fn enter_nested_graph(&mut self) {
+        let node_id = self.graph_nodes[self.graph_cursor].0;
+
+        self.graph_stack.push(GraphFrame {
+            nodes: self.graph_nodes.clone(),
+            edges: self.graph_edges.clone(),
+            cursor: self.graph_cursor,
+            params: self.graph_params.clone(),
+            param_values: self.graph_param_values.clone(),
+            param_groups: self.graph_param_groups.clone(),
+            depths: self.graph_depths.clone(),
+            layers: self.graph_layers.clone(),
+            has_children: self.graph_has_children.clone(),
+        });
+
+        self.graph_path.push(node_id);
+        self.graph_breadcrumb
+            .push(self.graph_nodes[self.graph_cursor].1.clone());
+
+        // We use snapshot_at_path conceptually -- but the TUI doesn't hold the Graph.
+        // The snapshot data would need to come from the audio thread.
+        // For now, we clear the graph view to show the node's name.
+        // A full implementation would require a snapshot request/response protocol.
+        // Instead, we rely on the info already in graph_params for the selected node.
+        // This is a simplified version.
+        self.graph_nodes = vec![];
+        self.graph_edges = vec![];
+        self.graph_depths = vec![];
+        self.graph_layers = vec![];
+        self.graph_params = vec![];
+        self.graph_param_values = vec![];
+        self.graph_param_groups = vec![];
+        self.graph_has_children = vec![];
+        self.graph_cursor = 0;
+    }
+
+    fn exit_nested_graph(&mut self) {
+        if let Some(frame) = self.graph_stack.pop() {
+            self.graph_nodes = frame.nodes;
+            self.graph_edges = frame.edges;
+            self.graph_cursor = frame.cursor;
+            self.graph_params = frame.params;
+            self.graph_param_values = frame.param_values;
+            self.graph_param_groups = frame.param_groups;
+            self.graph_depths = frame.depths;
+            self.graph_layers = frame.layers;
+            self.graph_has_children = frame.has_children;
+            self.graph_path.pop();
+            self.graph_breadcrumb.pop();
         }
     }
 
@@ -693,6 +825,8 @@ impl App {
                 swing: self.swing,
                 euclidean_k: self.euclidean_k,
                 undo_depth: self.undo_stack.len(),
+                node_description: self.current_node_description(),
+                param_help: self.current_param_help(),
             },
             middle[0],
         );
@@ -729,6 +863,8 @@ impl App {
                         } else {
                             None
                         },
+                        breadcrumb: &self.graph_breadcrumb,
+                        has_children: &self.graph_has_children,
                     },
                     middle[1],
                 );

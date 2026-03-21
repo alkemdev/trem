@@ -2,7 +2,7 @@
 
 use crate::graph::{
     GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
-    ProcessorInfo,
+    ProcessorInfo, Sig,
 };
 
 /// Schroeder reverb with 4 comb filters and 2 allpass filters per channel.
@@ -91,8 +91,8 @@ impl Processor for PlateReverb {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "reverb",
-            audio_inputs: 2,
-            audio_outputs: 2,
+            sig: Sig::STEREO,
+            description: "Plate-style reverb with damping control",
         }
     }
 
@@ -159,6 +159,7 @@ impl Processor for PlateReverb {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -170,6 +171,7 @@ impl Processor for PlateReverb {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 2,
@@ -181,6 +183,7 @@ impl Processor for PlateReverb {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: Some(0),
+                help: "",
             },
         ]
     }

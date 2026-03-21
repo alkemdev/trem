@@ -81,11 +81,11 @@ impl CallbackState {
                         .reserve(self.pattern_events.len().saturating_mul(8).max(256));
                 }
                 Command::SetParam {
-                    node,
+                    path,
                     param_id,
                     value,
                 } => {
-                    self.graph.set_node_param(node, param_id, value);
+                    self.graph.set_param_at_path(&path, param_id, value);
                 }
             }
         }
@@ -194,8 +194,7 @@ impl CallbackState {
         self.collect_pattern_events_for_block(frames);
         self.sort_block_events();
 
-        self.graph
-            .process(frames, self.sample_rate, &self.block_events);
+        self.graph.run(frames, self.sample_rate, &self.block_events);
         let l = self.graph.output_buffer(self.output_node, 0);
         let r = self.graph.output_buffer(self.output_node, 1);
 

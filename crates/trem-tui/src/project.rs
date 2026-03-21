@@ -67,8 +67,10 @@ impl ProjectData {
                     if let Some(pos) = descs.iter().position(|d| d.id == ov.param_id) {
                         values[pos] = ov.value;
                         let node_id = app.graph_nodes[ov.node_idx].0;
+                        let mut path = app.graph_path.clone();
+                        path.push(node_id);
                         app.bridge.send(trem_cpal::Command::SetParam {
-                            node: node_id,
+                            path,
                             param_id: ov.param_id,
                             value: ov.value,
                         });

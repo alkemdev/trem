@@ -1,3 +1,9 @@
+//! Audio graph visualization widget.
+//!
+//! Renders the processing graph as a layered left-to-right diagram with
+//! connection lines, node highlighting, a breadcrumb trail for nested graphs,
+//! and an inline parameter editing panel.
+
 use crate::theme;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -137,6 +143,8 @@ fn compute_layout(nodes: &[(u32, String)], edges: &[(u32, u16, u32, u16)]) -> Gr
     }
 }
 
+/// Main graph-view widget. Draws the processing DAG as a layered diagram
+/// with connection lines, node labels, and an optional parameter editing pane.
 pub struct GraphViewWidget<'a> {
     pub nodes: &'a [(u32, String)],
     pub edges: &'a [(u32, u16, u32, u16)],
@@ -145,14 +153,21 @@ pub struct GraphViewWidget<'a> {
     pub param_values: Option<&'a [f64]>,
     pub param_groups: Option<&'a [ParamGroup]>,
     pub param_cursor: Option<usize>,
+    pub breadcrumb: &'a [String],
+    pub has_children: &'a [bool],
 }
 
 impl<'a> Widget for GraphViewWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let title = if self.breadcrumb.is_empty() {
+            " Graph ".to_string()
+        } else {
+            format!(" Graph > {} ", self.breadcrumb.join(" > "))
+        };
         let block = Block::new()
             .borders(Borders::ALL)
             .border_style(theme::border())
-            .title(Span::styled(" Graph ", theme::title()))
+            .title(Span::styled(title, theme::title()))
             .padding(Padding::new(1, 1, 0, 0))
             .style(Style::new().bg(theme::BG));
 
@@ -298,11 +313,18 @@ impl<'a> Widget for GraphViewWidget<'a> {
                 node_style
             };
 
-            let name_chars: usize = name.chars().count().min(NAME_W as usize);
-            let truncated: String = name.chars().take(NAME_W as usize).collect();
-
+            let has_child = self.has_children.get(i).copied().unwrap_or(false);
+            let suffix = if has_child { " >" } else { "" };
+            let display_name = format!(
+                "{}{}",
+                name.chars()
+                    .take(NAME_W as usize - suffix.len())
+                    .collect::<String>(),
+                suffix
+            );
+            let name_chars: usize = display_name.chars().count().min(NAME_W as usize);
             let avail = (inner.x + inner.width).saturating_sub(rx) as usize;
-            let clipped: String = truncated.chars().take(avail).collect();
+            let clipped: String = display_name.chars().take(avail).collect();
             buf.set_string(rx, ry, &clipped, style);
 
             // Draw connecting arm (─) from end of name to route start

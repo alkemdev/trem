@@ -4,7 +4,7 @@
 
 use crate::event::GraphEvent;
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo, Sig,
 };
 use std::f64::consts::PI;
 
@@ -106,8 +106,8 @@ impl Processor for Oscillator {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "oscillator",
-            audio_inputs: 0,
-            audio_outputs: 1,
+            sig: Sig::SOURCE1,
+            description: "Anti-aliased oscillator with multiple waveforms",
         }
     }
 
@@ -147,6 +147,7 @@ impl Processor for Oscillator {
             flags: ParamFlags::BIPOLAR,
             step: 0.1,
             group: None,
+            help: "",
         }]
     }
 

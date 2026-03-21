@@ -1,1 +1,6 @@
 /target
+
+# Cursor internal state (plans, settings) — don't track
+.cursor/*
+# But do track our rules
+!.cursor/rules/

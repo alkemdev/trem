@@ -1,3 +1,9 @@
+//! Pitch representation, scales, and tuning systems.
+//!
+//! Pitches are stored as `log2(freq / reference)`, making octave transposition
+//! simple addition and equal temperaments uniform grids. Scales map integer
+//! degrees to pitches; tuning systems (`Equal`, `Just`, `Free`) generate scales.
+
 use crate::math::Rational;
 use std::f64::consts::LN_2;
 
@@ -11,7 +17,9 @@ use std::f64::consts::LN_2;
 pub struct Pitch(pub f64);
 
 impl Pitch {
+    /// Zero interval — the reference frequency itself.
     pub const UNISON: Pitch = Pitch(0.0);
+    /// One octave above the reference (doubles the frequency).
     pub const OCTAVE: Pitch = Pitch(1.0);
 
     /// Pitch from a frequency ratio (e.g. 3/2 for a just fifth).
@@ -56,7 +64,9 @@ impl Pitch {
 /// Bohlen-Pierce uses a tritave (Pitch(log2(3))).
 #[derive(Clone, Debug)]
 pub struct Scale {
+    /// Interval at which pitch classes repeat (usually one octave).
     pub period: Pitch,
+    /// Sorted pitch offsets within one period, starting from 0.
     pub classes: Vec<Pitch>,
 }
 
@@ -66,6 +76,17 @@ impl Scale {
     /// Degree 0 maps to the first pitch class.
     /// Degrees wrap at the period boundary: degree N in a scale of size S
     /// maps to `classes[N % S] + period * (N / S)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trem::pitch::Tuning;
+    ///
+    /// let scale = Tuning::edo12().to_scale();
+    /// // Degree -12 wraps to one octave below
+    /// let p = scale.resolve(-12);
+    /// assert!((p.0 - (-1.0)).abs() < 1e-10);
+    /// ```
     pub fn resolve(&self, degree: i32) -> Pitch {
         let n = self.classes.len() as i32;
         // Euclidean division so negative degrees wrap correctly
@@ -74,10 +95,12 @@ impl Scale {
         Pitch(self.classes[idx].0 + self.period.0 * octave as f64)
     }
 
+    /// Number of pitch classes per period.
     pub fn len(&self) -> usize {
         self.classes.len()
     }
 
+    /// True when the scale contains no pitch classes.
     pub fn is_empty(&self) -> bool {
         self.classes.is_empty()
     }
@@ -137,6 +160,19 @@ impl Tuning {
     }
 
     /// Standard 12-tone equal temperament.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trem::pitch::Tuning;
+    ///
+    /// let scale = Tuning::edo12().to_scale();
+    /// assert_eq!(scale.len(), 12);
+    ///
+    /// // Degree 12 = one octave up = double the frequency
+    /// let a5 = scale.resolve(12).to_hz(440.0);
+    /// assert!((a5 - 880.0).abs() < 0.01);
+    /// ```
     pub fn edo12() -> Self {
         Tuning::Equal {
             divisions: 12,

@@ -5,7 +5,7 @@
 use crate::event::GraphEvent;
 use crate::graph::{
     GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
-    ProcessorInfo,
+    ProcessorInfo, Sig,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,8 +123,8 @@ impl Processor for Adsr {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "adsr",
-            audio_inputs: 1,
-            audio_outputs: 1,
+            sig: Sig::MONO,
+            description: "ADSR envelope generator",
         }
     }
 
@@ -173,6 +173,7 @@ impl Processor for Adsr {
                 flags: ParamFlags::LOG_SCALE,
                 step: 0.005,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -184,6 +185,7 @@ impl Processor for Adsr {
                 flags: ParamFlags::LOG_SCALE,
                 step: 0.01,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 2,
@@ -195,6 +197,7 @@ impl Processor for Adsr {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 3,
@@ -206,6 +209,7 @@ impl Processor for Adsr {
                 flags: ParamFlags::LOG_SCALE,
                 step: 0.01,
                 group: Some(0),
+                help: "",
             },
         ]
     }

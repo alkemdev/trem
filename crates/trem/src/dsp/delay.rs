@@ -2,7 +2,7 @@
 
 use crate::graph::{
     GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
-    ProcessorInfo,
+    ProcessorInfo, Sig,
 };
 
 const MAX_DELAY_SAMPLES: usize = 44100 * 2; // 2 seconds at 44.1kHz
@@ -45,8 +45,8 @@ impl Processor for StereoDelay {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "delay",
-            audio_inputs: 2,
-            audio_outputs: 2,
+            sig: Sig::STEREO,
+            description: "Stereo ping-pong delay with feedback",
         }
     }
 
@@ -94,6 +94,7 @@ impl Processor for StereoDelay {
                 flags: ParamFlags::LOG_SCALE,
                 step: 5.0,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -105,6 +106,7 @@ impl Processor for StereoDelay {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 2,
@@ -116,6 +118,7 @@ impl Processor for StereoDelay {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: Some(0),
+                help: "",
             },
         ]
     }

@@ -7,6 +7,20 @@
 /// Distributes `hits` as evenly as possible across `steps`,
 /// producing the family of rhythms studied by Toussaint (2005).
 /// The first hit always lands on step 0.
+///
+/// # Examples
+///
+/// ```
+/// use trem::euclidean::euclidean;
+///
+/// // Tresillo: the backbone of many Latin rhythms
+/// let pattern = euclidean(3, 8);
+/// assert_eq!(pattern.iter().filter(|&&b| b).count(), 3);
+///
+/// // Four on the floor
+/// let four = euclidean(4, 16);
+/// assert!(four[0] && four[4] && four[8] && four[12]);
+/// ```
 pub fn euclidean(hits: u32, steps: u32) -> Vec<bool> {
     if steps == 0 {
         return vec![];

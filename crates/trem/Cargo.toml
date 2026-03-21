@@ -2,7 +2,10 @@
 name = "trem"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "A mathematical music engine — rational time, xenharmonic pitch, recursive trees, audio graphs"
+keywords = ["audio", "music", "dsp", "xenharmonic", "sequencer"]
+categories = ["multimedia::audio"]
 
 [features]
 serde = ["dep:serde", "num-rational/serde"]

@@ -267,10 +267,10 @@ mod drums {
 }
 
 // ---------------------------------------------------------------------------
-// SubGraph / analog_voice
+// Graph voice (analog_voice)
 // ---------------------------------------------------------------------------
 
-mod subgraph {
+mod graph_voice {
     use super::*;
 
     #[divan::bench]
@@ -283,6 +283,73 @@ mod subgraph {
     #[divan::bench]
     fn analog_voice_construct() {
         divan::black_box(analog_voice(0, BLOCK));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// New processors: wavetable, LFO, graphic EQ, stereo pan
+// ---------------------------------------------------------------------------
+
+mod new_processors {
+    use super::*;
+
+    #[divan::bench]
+    fn wavetable_sine(bencher: Bencher) {
+        let mut wt = Wavetable::new();
+        prime_source(&mut wt);
+        bencher.bench_local(|| run_source(&mut wt, BLOCK));
+    }
+
+    #[divan::bench]
+    fn wavetable_morph(bencher: Bencher) {
+        let mut wt = Wavetable::new();
+        wt.set_param(0, 1.5);
+        prime_source(&mut wt);
+        bencher.bench_local(|| run_source(&mut wt, BLOCK));
+    }
+
+    #[divan::bench]
+    fn lfo_sine(bencher: Bencher) {
+        let mut lfo = Lfo::new(2.0);
+        bencher.bench_local(|| run_source(&mut lfo, BLOCK));
+    }
+
+    #[divan::bench]
+    fn graphic_eq_7band(bencher: Bencher) {
+        let mut eq = GraphicEq::new();
+        let input = tone_input(BLOCK);
+        bencher.bench_local(|| run_mono_effect(&mut eq, &input, BLOCK));
+    }
+
+    #[divan::bench]
+    fn stereo_pan(bencher: Bencher) {
+        let mut pan = StereoPan::new(0.3);
+        let input = tone_input(BLOCK);
+        bencher.bench_local(|| run_stereo_effect(&mut pan, &input, &input, BLOCK));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamics
+// ---------------------------------------------------------------------------
+
+mod dynamics {
+    use super::*;
+
+    #[divan::bench]
+    fn limiter(bencher: Bencher) {
+        let mut lim = Limiter::new(-6.0, 100.0);
+        lim.reset();
+        let input = tone_input(BLOCK);
+        bencher.bench_local(|| run_stereo_effect(&mut lim, &input, &input, BLOCK));
+    }
+
+    #[divan::bench]
+    fn compressor(bencher: Bencher) {
+        let mut comp = Compressor::new(-18.0, 4.0, 10.0, 150.0);
+        comp.reset();
+        let input = tone_input(BLOCK);
+        bencher.bench_local(|| run_stereo_effect(&mut comp, &input, &input, BLOCK));
     }
 }
 

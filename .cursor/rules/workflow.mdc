@@ -1,0 +1,41 @@
+---
+description: Project workflow and development conventions for trem
+globs:
+alwaysApply: true
+---
+
+# Workflow
+
+Read and follow `AGENTS.md` at the repo root. It is the source of truth for
+build commands, code standards, and the proposal workflow.
+
+## Plan lifecycle
+
+Work items flow through directories at the repo root:
+
+    prop/ -> todo/ -> work/ -> docs/
+
+- **prop/**: Draft proposals. Add new ideas here as markdown files.
+- **todo/**: Accepted plans. Move from prop/ when approved.
+- **work/**: In progress. Move from todo/ when starting.
+- **docs/**: Done. Move from work/ when finished and verified.
+
+## When planning
+
+Use Cursor's Plan mode to draft proposals. When the plan is confirmed, save a
+copy to `prop/` (or `todo/` if already accepted). Do not start implementation
+until the user confirms.
+
+## When implementing
+
+1. Move the plan from `todo/` to `work/`.
+2. Work through the plan, updating progress.
+3. Before marking done: `cargo test --workspace` and `cargo test --workspace --doc`.
+4. Move the plan to `docs/` with a completion note.
+
+## Code conventions
+
+- License: MIT.
+- Every public item gets a doc comment. Key types get `# Examples`.
+- No narration comments. Comments explain *why*, not *what*.
+- Run tests before declaring anything finished.

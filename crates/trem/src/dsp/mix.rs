@@ -1,7 +1,7 @@
 //! Summing buses and crossfade mixers for mono and stereo routing.
 
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo, Sig,
 };
 
 /// Two mono inputs blended to one mono output via a crossfade parameter.
@@ -21,8 +21,11 @@ impl Processor for MonoCrossfade {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "crossfade",
-            audio_inputs: 2,
-            audio_outputs: 1,
+            sig: Sig {
+                inputs: 2,
+                outputs: 1,
+            },
+            description: "Crossfade between two mono signals",
         }
     }
 
@@ -47,6 +50,7 @@ impl Processor for MonoCrossfade {
             flags: ParamFlags::NONE,
             step: 0.05,
             group: None,
+            help: "",
         }]
     }
 
@@ -93,8 +97,11 @@ impl Processor for StereoMixer {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "stereo_mixer",
-            audio_inputs: self.input_pairs * 2,
-            audio_outputs: 2,
+            sig: Sig {
+                inputs: self.input_pairs * 2,
+                outputs: 2,
+            },
+            description: "Sum multiple stereo pairs to one pair",
         }
     }
 
@@ -137,6 +144,7 @@ impl Processor for StereoMixer {
             flags: ParamFlags::NONE,
             step: 0.05,
             group: None,
+            help: "",
         }]
     }
 

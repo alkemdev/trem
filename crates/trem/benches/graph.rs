@@ -96,23 +96,23 @@ mod graph_process {
     #[divan::bench]
     fn simple_chain_no_events(bencher: Bencher) {
         let (mut g, _) = simple_chain();
-        g.process(BLOCK, SR, &[note_on(0, 440.0, 0)]);
-        bencher.bench_local(|| g.process(BLOCK, SR, &[]));
+        g.run(BLOCK, SR, &[note_on(0, 440.0, 0)]);
+        bencher.bench_local(|| g.run(BLOCK, SR, &[]));
     }
 
     #[divan::bench]
     fn simple_chain_with_note(bencher: Bencher) {
         let (mut g, _) = simple_chain();
         let events = vec![note_on(0, 440.0, 0)];
-        bencher.bench_local(|| g.process(BLOCK, SR, &events));
+        bencher.bench_local(|| g.run(BLOCK, SR, &events));
     }
 
     #[divan::bench]
     fn full_mix_no_events(bencher: Bencher) {
         let (mut g, _) = full_mix_graph();
         let startup = vec![note_on(0, 440.0, 0), note_on(0, 220.0, 1)];
-        g.process(BLOCK, SR, &startup);
-        bencher.bench_local(|| g.process(BLOCK, SR, &[]));
+        g.run(BLOCK, SR, &startup);
+        bencher.bench_local(|| g.run(BLOCK, SR, &[]));
     }
 
     #[divan::bench]
@@ -124,7 +124,7 @@ mod graph_process {
             note_on(128, 55.0, 2),
             note_on(256, 330.0, 3),
         ];
-        bencher.bench_local(|| g.process(BLOCK, SR, &events));
+        bencher.bench_local(|| g.run(BLOCK, SR, &events));
     }
 
     #[divan::bench(args = [4, 8, 16, 32])]
@@ -147,8 +147,8 @@ mod graph_process {
         let events: Vec<TimedEvent> = (0..num_voices)
             .map(|i| note_on(0, 220.0 * (i + 1) as f64, i as u32))
             .collect();
-        g.process(BLOCK, SR, &events);
-        bencher.bench_local(|| g.process(BLOCK, SR, &[]));
+        g.run(BLOCK, SR, &events);
+        bencher.bench_local(|| g.run(BLOCK, SR, &[]));
     }
 }
 
@@ -274,7 +274,7 @@ mod topology {
                 g.connect(prev, 0, next, 0);
                 prev = next;
             }
-            g.process(1, SR, &[]);
+            g.run(1, SR, &[]);
         });
     }
 }

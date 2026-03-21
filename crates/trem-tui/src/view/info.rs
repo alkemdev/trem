@@ -1,3 +1,6 @@
+//! Info panel widget: displays note details, graph state, contextual key hints,
+//! and processor/parameter help text in a sidebar.
+
 use crate::input::{Mode, View};
 use crate::theme;
 use ratatui::buffer::Buffer;
@@ -95,6 +98,8 @@ fn context_hints(view: &View, mode: &Mode) -> Vec<(&'static str, &'static str)> 
     }
 }
 
+/// Right-hand sidebar showing contextual information: current note, graph
+/// node details, keybinding hints, and processor help text.
 pub struct InfoView<'a> {
     pub mode: &'a Mode,
     pub view: &'a View,
@@ -112,6 +117,8 @@ pub struct InfoView<'a> {
     pub swing: f64,
     pub euclidean_k: u32,
     pub undo_depth: usize,
+    pub node_description: &'a str,
+    pub param_help: &'a str,
 }
 
 impl<'a> Widget for InfoView<'a> {
@@ -312,6 +319,34 @@ impl<'a> Widget for InfoView<'a> {
         y += 1;
         if y >= y_max {
             return;
+        }
+
+        // --- HELP section (contextual descriptions) ---
+        if !self.node_description.is_empty() || !self.param_help.is_empty() {
+            if !draw_section(buf, &mut y, "HELP") {
+                return;
+            }
+            let help_style = Style::new().fg(theme::MUTED).bg(theme::BG);
+            if !self.node_description.is_empty() && y < y_max {
+                let line = Line::from(vec![Span::styled(
+                    format!(" {}", self.node_description),
+                    help_style,
+                )]);
+                buf.set_line(x, y, &line, w);
+                y += 1;
+            }
+            if !self.param_help.is_empty() && y < y_max {
+                let line = Line::from(vec![Span::styled(
+                    format!(" {}", self.param_help),
+                    Style::new().fg(theme::DIM).bg(theme::BG),
+                )]);
+                buf.set_line(x, y, &line, w);
+                y += 1;
+            }
+            y += 1;
+            if y >= y_max {
+                return;
+            }
         }
 
         // --- KEYS section (contextual) ---

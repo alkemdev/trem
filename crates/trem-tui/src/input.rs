@@ -128,6 +128,10 @@ pub enum Action {
     LoadProject,
     /// Backtick: toggle bottom pane between waveform and spectrum.
     CycleBottomPane,
+    /// Enter: dive into a nested graph (only on nodes with children).
+    EnterGraph,
+    /// Escape in graph at depth > 0: ascend to parent graph.
+    ExitGraph,
 }
 
 /// Maps a key to an action for the given mode; release events and unbound keys yield `None`.
@@ -170,6 +174,7 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         KeyCode::Char('}') => return Some(Action::SwingUp),
         KeyCode::Char('`') => return Some(Action::CycleBottomPane),
         KeyCode::Esc if *mode == Mode::Edit => return Some(Action::ToggleEdit),
+        KeyCode::Esc if *mode == Mode::Normal => return Some(Action::ExitGraph),
         _ => {}
     }
 
@@ -183,6 +188,7 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
             KeyCode::Char('l') => Some(Action::MoveRight),
             KeyCode::Char('k') => Some(Action::MoveUp),
             KeyCode::Char('j') => Some(Action::MoveDown),
+            KeyCode::Enter => Some(Action::EnterGraph),
             _ => None,
         },
         Mode::Edit => match key.code {

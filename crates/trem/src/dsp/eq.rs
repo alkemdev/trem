@@ -2,7 +2,7 @@
 
 use crate::graph::{
     GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
-    ProcessorInfo,
+    ProcessorInfo, Sig,
 };
 use std::f64::consts::PI;
 
@@ -146,8 +146,8 @@ impl Processor for ParametricEq {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "eq",
-            audio_inputs: 2,
-            audio_outputs: 2,
+            sig: Sig::STEREO,
+            description: "3-band parametric equalizer",
         }
     }
 
@@ -203,6 +203,7 @@ impl Processor for ParametricEq {
                 flags: ParamFlags::LOG_SCALE,
                 step: 50.0,
                 group: gid,
+                help: "",
             });
             p.push(ParamDescriptor {
                 id: base + 1,
@@ -218,6 +219,7 @@ impl Processor for ParametricEq {
                 flags: ParamFlags::BIPOLAR,
                 step: 0.5,
                 group: gid,
+                help: "",
             });
             p.push(ParamDescriptor {
                 id: base + 2,
@@ -233,6 +235,7 @@ impl Processor for ParametricEq {
                 flags: ParamFlags::LOG_SCALE,
                 step: 0.1,
                 group: gid,
+                help: "",
             });
         }
         p

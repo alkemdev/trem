@@ -1,6 +1,6 @@
 //! White noise from a small deterministic PRNG—useful for percussion, air, or modulation sources.
 
-use crate::graph::{ProcessContext, Processor, ProcessorInfo};
+use crate::graph::{ProcessContext, Processor, ProcessorInfo, Sig};
 
 /// White noise generator using a linear congruential generator.
 /// No external dependencies — deterministic PRNG seeded at construction.
@@ -37,8 +37,8 @@ impl Processor for Noise {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "noise",
-            audio_inputs: 0,
-            audio_outputs: 1,
+            sig: Sig::SOURCE1,
+            description: "White noise generator",
         }
     }
 

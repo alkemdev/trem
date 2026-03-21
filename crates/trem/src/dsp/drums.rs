@@ -4,7 +4,7 @@
 
 use crate::event::GraphEvent;
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo, Sig,
 };
 use std::f64::consts::PI;
 
@@ -76,8 +76,8 @@ impl Processor for KickSynth {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "kick",
-            audio_inputs: 0,
-            audio_outputs: 1,
+            sig: Sig::SOURCE1,
+            description: "Analog-modeled kick drum synthesizer",
         }
     }
 
@@ -118,6 +118,7 @@ impl Processor for KickSynth {
                 flags: ParamFlags::LOG_SCALE,
                 step: 5.0,
                 group: None,
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -129,6 +130,7 @@ impl Processor for KickSynth {
                 flags: ParamFlags::NONE,
                 step: 0.01,
                 group: None,
+                help: "",
             },
             ParamDescriptor {
                 id: 2,
@@ -140,6 +142,7 @@ impl Processor for KickSynth {
                 flags: ParamFlags::NONE,
                 step: 0.5,
                 group: None,
+                help: "",
             },
         ]
     }
@@ -281,8 +284,8 @@ impl Processor for SnareSynth {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "snare",
-            audio_inputs: 0,
-            audio_outputs: 1,
+            sig: Sig::SOURCE1,
+            description: "Noise + tone snare drum synthesizer",
         }
     }
 
@@ -324,6 +327,7 @@ impl Processor for SnareSynth {
                 flags: ParamFlags::LOG_SCALE,
                 step: 10.0,
                 group: None,
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -335,6 +339,7 @@ impl Processor for SnareSynth {
                 flags: ParamFlags::NONE,
                 step: 0.01,
                 group: None,
+                help: "",
             },
             ParamDescriptor {
                 id: 2,
@@ -346,6 +351,7 @@ impl Processor for SnareSynth {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: None,
+                help: "",
             },
         ]
     }
@@ -461,8 +467,8 @@ impl Processor for HatSynth {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "hat",
-            audio_inputs: 0,
-            audio_outputs: 1,
+            sig: Sig::SOURCE1,
+            description: "Metallic hi-hat synthesizer",
         }
     }
 
@@ -501,6 +507,7 @@ impl Processor for HatSynth {
             flags: ParamFlags::NONE,
             step: 0.005,
             group: None,
+            help: "",
         }]
     }
 

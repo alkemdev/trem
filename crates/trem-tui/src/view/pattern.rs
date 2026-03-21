@@ -1,3 +1,8 @@
+//! Step-sequencer pattern grid widget.
+//!
+//! Renders a grid of note cells (rows = steps, columns = voices) with
+//! velocity-coloured indicators, cursor highlighting, and gate-length suffixes.
+
 use crate::input::Mode;
 use crate::theme;
 use ratatui::buffer::Buffer;
@@ -39,6 +44,7 @@ fn format_note(event: &NoteEvent, scale: &Scale) -> String {
     }
 }
 
+/// Grid-based pattern editor showing steps as rows and voices as columns.
 pub struct PatternView<'a> {
     pub grid: &'a trem::grid::Grid,
     pub cursor_row: u32,

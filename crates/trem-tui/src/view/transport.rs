@@ -1,3 +1,5 @@
+//! Transport bar widget: BPM, playback position, mode indicator, and bottom-pane selector.
+
 use crate::input::{BottomPane, Mode, View};
 use crate::theme;
 use ratatui::buffer::Buffer;
@@ -6,6 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+/// Single-line transport bar at the top of the TUI.
 pub struct TransportView<'a> {
     pub bpm: f64,
     pub beat_position: f64,

@@ -23,6 +23,7 @@ pub mod graph;
 pub mod grid;
 pub mod math;
 pub mod pitch;
+pub mod registry;
 pub mod render;
 pub mod time;
 pub mod tree;

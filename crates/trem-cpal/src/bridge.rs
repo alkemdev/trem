@@ -25,8 +25,9 @@ pub enum Command {
     /// Release the given voice (matches [`Command::NoteOn`]).
     NoteOff { voice: u32 },
     /// Set a node parameter on the audio graph (live tweak from UI).
+    /// `path` identifies the node through nested graphs.
     SetParam {
-        node: u32,
+        path: Vec<u32>,
         param_id: u32,
         value: f64,
     },

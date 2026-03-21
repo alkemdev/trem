@@ -16,6 +16,8 @@ anyhow = "1"
 name = "trem-bin"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "TUI binary for the trem mathematical music engine"
 
 [[bin]]
 name = "trem"

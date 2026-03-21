@@ -1,6 +1,7 @@
 use divan::Bencher;
 use trem::euclidean;
 use trem::event::NoteEvent;
+use trem::graph::Sig;
 use trem::grid::Grid;
 use trem::math::Rational;
 use trem::pitch::{Pitch, Tuning};
@@ -250,5 +251,65 @@ mod pitch {
             ],
         };
         bencher.bench(|| tuning.to_scale());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sig algebra
+// ---------------------------------------------------------------------------
+
+mod sig {
+    use super::*;
+
+    #[divan::bench]
+    fn chain(bencher: Bencher) {
+        let a = Sig {
+            inputs: 2,
+            outputs: 4,
+        };
+        let b = Sig {
+            inputs: 4,
+            outputs: 2,
+        };
+        bencher.bench(|| a.chain(b));
+    }
+
+    #[divan::bench]
+    fn parallel(bencher: Bencher) {
+        let a = Sig::STEREO;
+        let b = Sig::MONO;
+        bencher.bench(|| a.parallel(b));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Registry
+// ---------------------------------------------------------------------------
+
+mod registry {
+    use divan::Bencher;
+    use trem::registry::Registry;
+
+    #[divan::bench]
+    fn build_standard(bencher: Bencher) {
+        bencher.bench(Registry::standard);
+    }
+
+    #[divan::bench]
+    fn create_osc(bencher: Bencher) {
+        let reg = Registry::standard();
+        bencher.bench(|| reg.create("osc"));
+    }
+
+    #[divan::bench]
+    fn create_syn(bencher: Bencher) {
+        let reg = Registry::standard();
+        bencher.bench(|| reg.create("syn"));
+    }
+
+    #[divan::bench]
+    fn lookup_all_tags(bencher: Bencher) {
+        let reg = Registry::standard();
+        bencher.bench(|| reg.tags());
     }
 }

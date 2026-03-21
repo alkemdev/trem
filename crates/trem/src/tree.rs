@@ -43,6 +43,16 @@ pub struct OwnedFlatEvent<E> {
 
 impl<E> Tree<E> {
     /// One event spanning the entire local time window.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trem::tree::Tree;
+    /// let note = Tree::leaf(42);
+    /// let flat = note.flatten();
+    /// assert_eq!(flat.len(), 1);
+    /// assert_eq!(*flat[0].event, 42);
+    /// ```
     pub fn leaf(event: E) -> Self {
         Tree::Leaf(event)
     }
@@ -53,6 +63,24 @@ impl<E> Tree<E> {
     }
 
     /// Divides time evenly across `children` in order; empty `children` yield no output.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use trem::tree::Tree;
+    /// use trem::math::Rational;
+    ///
+    /// // Four equal subdivisions
+    /// let pattern = Tree::seq(vec![
+    ///     Tree::leaf("kick"),
+    ///     Tree::rest(),
+    ///     Tree::leaf("snare"),
+    ///     Tree::rest(),
+    /// ]);
+    /// let flat = pattern.flatten();
+    /// assert_eq!(flat.len(), 2); // only non-rest leaves
+    /// assert_eq!(flat[0].duration, Rational::new(1, 4));
+    /// ```
     pub fn seq(children: Vec<Tree<E>>) -> Self {
         Tree::Seq(children)
     }

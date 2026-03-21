@@ -2,7 +2,10 @@
 name = "trem-tui"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Terminal UI for the trem mathematical music engine"
+keywords = ["tui", "music", "sequencer", "ratatui"]
+categories = ["multimedia::audio", "command-line-interface"]
 
 [dependencies]
 trem = { workspace = true, features = ["serde"] }

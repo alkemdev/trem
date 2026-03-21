@@ -1,9 +1,13 @@
+//! Real-time stereo waveform scope rendered as a braille dot plot.
+
 use crate::theme;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Padding, Widget};
 
+/// Waveform oscilloscope widget. Plots the most recent audio samples as
+/// braille characters scaled to the widget height.
 pub struct ScopeView<'a> {
     pub samples: &'a [f32],
 }

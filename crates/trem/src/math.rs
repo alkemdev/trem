@@ -24,35 +24,44 @@ pub fn lcm(a: u64, b: u64) -> u64 {
 pub struct Rational(num_rational::Rational64);
 
 impl Rational {
+    /// Create a rational from a signed numerator and unsigned denominator.
+    /// The result is automatically reduced to lowest terms.
     pub fn new(num: i64, den: u64) -> Self {
         debug_assert!(den <= i64::MAX as u64, "denominator overflows i64");
         Self(num_rational::Rational64::new(num, den as i64))
     }
 
+    /// Whole number as a rational (denominator = 1).
     pub fn integer(n: i64) -> Self {
         Self(num_rational::Rational64::from_integer(n))
     }
 
+    /// Additive identity: 0/1.
     pub fn zero() -> Self {
         Self(num_rational::Rational64::from_integer(0))
     }
 
+    /// Multiplicative identity: 1/1.
     pub fn one() -> Self {
         Self(num_rational::Rational64::from_integer(1))
     }
 
+    /// True when the value is exactly zero.
     pub fn is_zero(self) -> bool {
         *self.0.numer() == 0
     }
 
+    /// True when the value is strictly greater than zero.
     pub fn is_positive(self) -> bool {
         *self.0.numer() > 0
     }
 
+    /// True when the value is strictly less than zero.
     pub fn is_negative(self) -> bool {
         *self.0.numer() < 0
     }
 
+    /// Absolute value.
     pub fn abs(self) -> Self {
         if self.is_negative() {
             -self
@@ -61,22 +70,27 @@ impl Rational {
         }
     }
 
+    /// Multiplicative inverse (1/self). Panics on zero.
     pub fn recip(self) -> Self {
         Self(self.0.recip())
     }
 
+    /// Largest integer not greater than this value.
     pub fn floor(self) -> i64 {
         self.0.floor().to_integer()
     }
 
+    /// Smallest integer not less than this value.
     pub fn ceil(self) -> i64 {
         self.0.ceil().to_integer()
     }
 
+    /// Lossy conversion to `f64` (returns 0.0 on overflow).
     pub fn to_f64(self) -> f64 {
         self.0.to_f64().unwrap_or(0.0)
     }
 
+    /// The smaller of two rationals.
     pub fn min(self, other: Self) -> Self {
         if self <= other {
             self
@@ -85,6 +99,7 @@ impl Rational {
         }
     }
 
+    /// The larger of two rationals.
     pub fn max(self, other: Self) -> Self {
         if self >= other {
             self

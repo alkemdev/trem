@@ -2,7 +2,10 @@
 name = "trem-cpal"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Real-time audio backend for trem using cpal"
+keywords = ["audio", "cpal", "realtime"]
+categories = ["multimedia::audio"]
 
 [dependencies]
 trem = { workspace = true }

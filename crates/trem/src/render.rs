@@ -94,7 +94,7 @@ pub fn render(
             })
             .collect();
 
-        graph.process(frames, sample_rate, &block_events);
+        graph.run(frames, sample_rate, &block_events);
 
         for (ch, &port) in output_ports.iter().enumerate() {
             let buf = graph.output_buffer(output_node, port);

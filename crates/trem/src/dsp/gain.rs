@@ -3,7 +3,7 @@
 //! These are lightweight `Processor` nodes for routing and level staging without extra dependencies.
 
 use crate::graph::{
-    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo, Sig,
 };
 
 /// Gain + stereo pan processor.
@@ -31,8 +31,11 @@ impl Processor for Gain {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "gain",
-            audio_inputs: 1,
-            audio_outputs: 2,
+            sig: Sig {
+                inputs: 1,
+                outputs: 2,
+            },
+            description: "Mono to stereo with level and pan",
         }
     }
 
@@ -62,6 +65,7 @@ impl Processor for Gain {
                 flags: ParamFlags::NONE,
                 step: 0.05,
                 group: None,
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -73,6 +77,7 @@ impl Processor for Gain {
                 flags: ParamFlags::BIPOLAR,
                 step: 0.05,
                 group: None,
+                help: "",
             },
         ]
     }
@@ -110,8 +115,8 @@ impl Processor for StereoGain {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "stereo_gain",
-            audio_inputs: 2,
-            audio_outputs: 2,
+            sig: Sig::STEREO,
+            description: "Stereo level control",
         }
     }
 
@@ -136,6 +141,7 @@ impl Processor for StereoGain {
             flags: ParamFlags::NONE,
             step: 0.05,
             group: None,
+            help: "",
         }]
     }
 
@@ -149,6 +155,72 @@ impl Processor for StereoGain {
     fn set_param(&mut self, id: u32, value: f64) {
         match id {
             0 => self.level = value.clamp(0.0, 2.0) as f32,
+            _ => {}
+        }
+    }
+}
+
+/// Stereo panner (2 in, 2 out).
+///
+/// Constant-power pan law: `pan` in [-1, 1] crossfades between channels.
+/// At 0 (center) both channels pass at unity. At -1, right channel is silent.
+pub struct StereoPan {
+    pub pan: f32,
+}
+
+impl StereoPan {
+    /// Centre-panned by default; `pan` in [-1, 1].
+    pub fn new(pan: f32) -> Self {
+        Self { pan }
+    }
+}
+
+impl Processor for StereoPan {
+    fn info(&self) -> ProcessorInfo {
+        ProcessorInfo {
+            name: "stereo_pan",
+            sig: Sig::STEREO,
+            description: "Stereo panning control",
+        }
+    }
+
+    fn process(&mut self, ctx: &mut ProcessContext) {
+        let angle = (self.pan + 1.0) * 0.25 * std::f32::consts::PI;
+        let gl = angle.cos();
+        let gr = angle.sin();
+        for i in 0..ctx.frames {
+            ctx.outputs[0][i] = ctx.inputs[0][i] * gl;
+            ctx.outputs[1][i] = ctx.inputs[1][i] * gr;
+        }
+    }
+
+    fn reset(&mut self) {}
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![ParamDescriptor {
+            id: 0,
+            name: "Pan",
+            min: -1.0,
+            max: 1.0,
+            default: 0.0,
+            unit: ParamUnit::Linear,
+            flags: ParamFlags::BIPOLAR,
+            step: 0.05,
+            group: None,
+            help: "",
+        }]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.pan as f64,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.pan = value.clamp(-1.0, 1.0) as f32,
             _ => {}
         }
     }
@@ -170,8 +242,8 @@ impl Processor for MonoGain {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "mono_gain",
-            audio_inputs: 1,
-            audio_outputs: 1,
+            sig: Sig::MONO,
+            description: "Simple mono level control",
         }
     }
 
@@ -194,6 +266,7 @@ impl Processor for MonoGain {
             flags: ParamFlags::NONE,
             step: 0.05,
             group: None,
+            help: "",
         }]
     }
 

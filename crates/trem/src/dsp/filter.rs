@@ -4,7 +4,7 @@
 
 use crate::graph::{
     GroupHint, ParamDescriptor, ParamFlags, ParamGroup, ParamUnit, ProcessContext, Processor,
-    ProcessorInfo,
+    ProcessorInfo, Sig,
 };
 use std::f64::consts::PI;
 
@@ -116,8 +116,8 @@ impl Processor for BiquadFilter {
     fn info(&self) -> ProcessorInfo {
         ProcessorInfo {
             name: "biquad",
-            audio_inputs: 1,
-            audio_outputs: 1,
+            sig: Sig::MONO,
+            description: "Resonant biquad filter with selectable type",
         }
     }
 
@@ -155,6 +155,7 @@ impl Processor for BiquadFilter {
                 flags: ParamFlags::LOG_SCALE,
                 step: 50.0,
                 group: Some(0),
+                help: "",
             },
             ParamDescriptor {
                 id: 1,
@@ -166,6 +167,7 @@ impl Processor for BiquadFilter {
                 flags: ParamFlags::LOG_SCALE,
                 step: 0.1,
                 group: Some(0),
+                help: "",
             },
         ]
     }
