@@ -1,12 +1,22 @@
+//! Band-limited analog-style waveforms and a graph [`Oscillator`] that follows note events.
+//!
+//! PolyBLEP reduces aliasing on discontinuous shapes so pitched sources stay cleaner at high frequencies.
+
 use crate::event::GraphEvent;
 use crate::graph::{ProcessContext, Processor, ProcessorInfo};
 use std::f64::consts::PI;
 
+/// Basic periodic shape emitted by [`Oscillator`]; each variant uses the same phase accumulator
+/// but different band-limiting or integration (triangle is derived from a corrected square).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Waveform {
+    /// Smooth sinusoid; no BLEP needed.
     Sine,
+    /// Rising ramp with falling discontinuity removed via polyBLEP.
     Saw,
+    /// Alternating ±1 with edges softened by polyBLEP at both transitions.
     Square,
+    /// Integrated square through a leaky integrator for a rounded triangle character.
     Triangle,
 }
 
@@ -20,6 +30,7 @@ pub struct Oscillator {
 }
 
 impl Oscillator {
+    /// Builds an oscillator at 440 Hz, default sample rate, with no voice filter (responds to all notes).
     pub fn new(waveform: Waveform) -> Self {
         Self {
             waveform,
@@ -30,6 +41,7 @@ impl Oscillator {
         }
     }
 
+    /// Restricts frequency updates to `NoteOn` events whose voice matches `id`, for polyphonic graphs.
     pub fn with_voice(mut self, id: u32) -> Self {
         self.voice_id = Some(id);
         self

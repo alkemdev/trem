@@ -1,3 +1,7 @@
+//! Level and panning utilities: mono-to-stereo pan, stereo pair gain, and simple mono gain.
+//!
+//! These are lightweight `Processor` nodes for routing and level staging without extra dependencies.
+
 use crate::graph::{
     ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
 };
@@ -12,10 +16,12 @@ pub struct Gain {
 }
 
 impl Gain {
+    /// Mono input scaled by `level`, centered pan (equal left/right).
     pub fn new(level: f32) -> Self {
         Self { level, pan: 0.0 }
     }
 
+    /// Constant-power pan: `pan` in [-1, 1] maps full left to full right at the given `level`.
     pub fn with_pan(level: f32, pan: f32) -> Self {
         Self { level, pan }
     }
@@ -90,6 +96,7 @@ pub struct StereoGain {
 }
 
 impl StereoGain {
+    /// Applies the same gain independently to left and right inputs.
     pub fn new(level: f32) -> Self {
         Self { level }
     }
@@ -147,6 +154,7 @@ pub struct MonoGain {
 }
 
 impl MonoGain {
+    /// Single-channel multiply; simplest gain stage for one bus.
     pub fn new(level: f32) -> Self {
         Self { level }
     }

@@ -1,13 +1,22 @@
+//! Audio graph: [`Processor`] nodes, routing, block processing, and parameter introspection.
+//!
+//! [`Graph`] sorts nodes topologically, sums incoming edges per input port, and reuses a buffer pool per block.
+
 use crate::event::TimedEvent;
 
+/// Stable index for a node in a [`Graph`].
 pub type NodeId = u32;
+/// Audio input or output port index on a node.
 pub type PortIdx = u16;
 
 /// Metadata about a processor's ports.
 #[derive(Clone, Debug)]
 pub struct ProcessorInfo {
+    /// Short name for UIs and debugging.
     pub name: &'static str,
+    /// How many input buffers are mixed from upstream connections.
     pub audio_inputs: u16,
+    /// How many output buffers this node writes each block.
     pub audio_outputs: u16,
 }
 
@@ -17,28 +26,45 @@ pub struct ProcessorInfo {
 /// enumerate and control a processor's parameters without hardcoding.
 #[derive(Clone, Debug)]
 pub struct ParamDescriptor {
+    /// Opaque id used with [`Processor::get_param`] / [`Processor::set_param`].
     pub id: u32,
+    /// Human-readable label for automation UIs.
     pub name: &'static str,
+    /// Minimum allowed value (inclusive unless a processor documents otherwise).
     pub min: f64,
+    /// Maximum allowed value (inclusive unless documented otherwise).
     pub max: f64,
+    /// Value after [`Processor::reset`] or construction.
     pub default: f64,
+    /// How to display and interpret the number (e.g. dB vs linear gain).
     pub unit: ParamUnit,
+    /// Knob curve and range shape hints.
     pub flags: ParamFlags,
 }
 
+/// Display/scaling hint for a parameter value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParamUnit {
+    /// Unlabeled linear quantity.
     Linear,
+    /// Decibels (see [`ParamUnit::suffix`] for display).
     Decibels,
+    /// Frequency in Hz.
     Hertz,
+    /// Time in milliseconds.
     Milliseconds,
+    /// Time in seconds.
     Seconds,
+    /// 0–100 style percentage when paired with `min`/`max`.
     Percent,
+    /// Pitch interval in semitones.
     Semitones,
+    /// Octave shift or span in octaves.
     Octaves,
 }
 
 impl ParamUnit {
+    /// Short suffix for readouts (empty for [`ParamUnit::Linear`]).
     pub fn suffix(self) -> &'static str {
         match self {
             ParamUnit::Linear => "",
@@ -54,8 +80,10 @@ impl ParamUnit {
 }
 
 bitflags::bitflags! {
+    /// UI hints for mapping normalized controls to parameter values.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct ParamFlags: u8 {
+        /// No extra interpretation beyond `min`/`max`.
         const NONE      = 0;
         /// Logarithmic knob scaling (good for frequency, time).
         const LOG_SCALE = 1 << 0;
@@ -66,10 +94,15 @@ bitflags::bitflags! {
 
 /// Context passed to a processor for each processing block.
 pub struct ProcessContext<'a> {
+    /// One slice per input port, each `frames` long (summed upstream by the graph).
     pub inputs: &'a [&'a [f32]],
+    /// One buffer per output port; processors write `frames` samples from the start.
     pub outputs: &'a mut [Vec<f32>],
+    /// Samples in this callback (≤ graph block size).
     pub frames: usize,
+    /// Host sample rate in Hz.
     pub sample_rate: f64,
+    /// Block-relative [`TimedEvent`]s (offsets in `[0, frames)`).
     pub events: &'a [TimedEvent],
 }
 
@@ -96,12 +129,16 @@ pub trait Processor: Send {
     fn set_param(&mut self, _id: u32, _value: f64) {}
 }
 
-/// A connection between two ports in the graph.
+/// Routes one output port to one input port; multiple edges into the same input are summed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Edge {
+    /// Source node index.
     pub src_node: NodeId,
+    /// Which output on `src_node`.
     pub src_port: PortIdx,
+    /// Destination node index.
     pub dst_node: NodeId,
+    /// Which input on `dst_node`.
     pub dst_port: PortIdx,
 }
 
@@ -159,6 +196,7 @@ pub struct Graph {
 }
 
 impl Graph {
+    /// Empty graph with initial block allocation size (may grow if `process` uses larger `frames`).
     pub fn new(block_size: usize) -> Self {
         Self {
             nodes: Vec::new(),
@@ -196,6 +234,7 @@ impl Graph {
         self.dirty = true;
     }
 
+    /// Number of live (non-removed) processor slots.
     pub fn node_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.is_some()).count()
     }
@@ -244,7 +283,7 @@ impl Graph {
         self.dirty = false;
     }
 
-    /// Process one block of audio.
+    /// Runs the graph in topological order for `frames` samples, mixing edges into inputs and passing `events` to each node.
     pub fn process(&mut self, frames: usize, sample_rate: f64, events: &[TimedEvent]) {
         if self.dirty {
             self.rebuild();
@@ -319,12 +358,13 @@ impl Graph {
         }
     }
 
-    /// Read the output buffer of a node/port after processing.
+    /// Slice of the last [`Graph::process`] output for `node`/`port` (length ≥ last `frames`; only first `frames` are valid).
     pub fn output_buffer(&self, node: NodeId, port: PortIdx) -> &[f32] {
         let idx = self.buffer_offsets[node as usize] + port as usize;
         self.buffer_pool.get(idx)
     }
 
+    /// Calls [`Processor::reset`] on every node (e.g. clear oscillator phase, envelopes).
     pub fn reset(&mut self) {
         for node in &mut self.nodes {
             if let Some(ref mut p) = node {
@@ -344,7 +384,7 @@ impl Graph {
         (nodes, self.edges.clone())
     }
 
-    /// Get parameter descriptors for a specific node.
+    /// Delegates to [`Processor::params`]; unknown or empty slots return an empty vec.
     pub fn node_params(&self, node: NodeId) -> Vec<ParamDescriptor> {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.params(),
@@ -352,7 +392,7 @@ impl Graph {
         }
     }
 
-    /// Read a parameter value from a specific node.
+    /// Reads [`Processor::get_param`]; missing nodes return `0.0`.
     pub fn node_param_value(&self, node: NodeId, param_id: u32) -> f64 {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.get_param(param_id),
@@ -360,7 +400,7 @@ impl Graph {
         }
     }
 
-    /// Set a parameter value on a specific node.
+    /// Writes [`Processor::set_param`] if the node exists; otherwise no-op.
     pub fn set_node_param(&mut self, node: NodeId, param_id: u32, value: f64) {
         if let Some(Some(ref mut p)) = self.nodes.get_mut(node as usize) {
             p.set_param(param_id, value);

@@ -1,3 +1,5 @@
+//! Schroeder-style “plate” stereo reverb: parallel combs per channel, then allpass diffusion, dry/wet blend.
+
 use crate::graph::{
     ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
 };
@@ -29,6 +31,7 @@ fn comb_delay_for(base: usize, spread: usize, room_size: f64) -> usize {
 }
 
 impl PlateReverb {
+    /// `room_size` scales comb delay lengths and feedback; `damping` darkens the tail; `mix` is wet amount in [0, 1].
     pub fn new(room_size: f64, damping: f64, mix: f64) -> Self {
         let rs = room_size.clamp(0.0, 1.0);
         let dp = damping.clamp(0.0, 1.0);

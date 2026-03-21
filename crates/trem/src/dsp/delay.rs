@@ -1,3 +1,5 @@
+//! Stereo delay with feedback and wet/dry mix; fixed maximum buffer sized for long times at 44.1 kHz.
+
 use crate::graph::{
     ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
 };
@@ -19,6 +21,7 @@ pub struct StereoDelay {
 }
 
 impl StereoDelay {
+    /// Delay time in ms, feedback amount clamped to [0, 0.95], and wet mix in [0, 1]; L/R share timing, separate buffers.
     pub fn new(time_ms: f64, feedback: f64, mix: f64) -> Self {
         Self {
             buf_l: vec![0.0; MAX_DELAY_SAMPLES],

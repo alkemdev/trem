@@ -1,3 +1,7 @@
+//! ADSR envelope as a graph processor: shapes an audio stream by gate times from note events.
+//!
+//! Output is 0–1; multiply happens per sample so you can drive amps or filters from the same block.
+
 use crate::event::GraphEvent;
 use crate::graph::{ProcessContext, Processor, ProcessorInfo};
 
@@ -27,6 +31,7 @@ pub struct Adsr {
 }
 
 impl Adsr {
+    /// Creates an envelope: `attack`, `decay`, `release` are durations in seconds; `sustain` is a held level in [0, 1].
     pub fn new(attack: f64, decay: f64, sustain: f64, release: f64) -> Self {
         Self {
             attack,
@@ -40,21 +45,25 @@ impl Adsr {
         }
     }
 
+    /// Only reacts to `NoteOn`/`NoteOff` for the given voice when set; omit for global (omni) triggering.
     pub fn with_voice(mut self, id: u32) -> Self {
         self.voice_id = Some(id);
         self
     }
 
+    /// Jumps into the attack stage from idle or any stage; use for manual or test triggering outside the graph.
     pub fn trigger(&mut self) {
         self.stage = Stage::Attack;
     }
 
+    /// Begins release if not idle; matches `NoteOff` handling so tails decay instead of snapping off.
     pub fn release_note(&mut self) {
         if self.stage != Stage::Idle {
             self.stage = Stage::Release;
         }
     }
 
+    /// True while the envelope is past idle (attack through release), useful to know if output may be non-zero.
     pub fn is_active(&self) -> bool {
         self.stage != Stage::Idle
     }

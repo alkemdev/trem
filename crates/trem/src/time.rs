@@ -1,3 +1,8 @@
+//! Beat-based durations and half-open time spans using exact [`Rational`] math.
+//!
+//! Conversions to samples or seconds take BPM and sample rate; they are approximate at the
+//! `f64` boundary but beat lengths stay exact until then.
+
 use crate::math::Rational;
 
 /// A duration measured in beats as an exact rational number.
@@ -5,23 +10,28 @@ use crate::math::Rational;
 pub struct Duration(pub Rational);
 
 impl Duration {
+    /// Whole-number duration of `n` beats (`n/1`).
     pub fn beats(n: i64) -> Self {
         Self(Rational::integer(n))
     }
 
+    /// Fractional beat length `num/den`, reduced like [`Rational::new`].
     pub fn new(num: i64, den: u64) -> Self {
         Self(Rational::new(num, den))
     }
 
+    /// Zero beats.
     pub fn zero() -> Self {
         Self(Rational::zero())
     }
 
+    /// Length in samples at `bpm` and `sample_rate` (floating-point; not sample-quantized).
     pub fn to_samples(self, bpm: f64, sample_rate: f64) -> f64 {
         let seconds = self.0.to_f64() * 60.0 / bpm;
         seconds * sample_rate
     }
 
+    /// Length in seconds at `bpm`.
     pub fn to_seconds(self, bpm: f64) -> f64 {
         self.0.to_f64() * 60.0 / bpm
     }
@@ -35,18 +45,22 @@ pub struct Span {
 }
 
 impl Span {
+    /// Half-open interval `[start, end)` in beats; callers should keep `start <= end` for sensible geometry.
     pub fn new(start: Rational, end: Rational) -> Self {
         Self { start, end }
     }
 
+    /// `end - start`; may be negative if `end < start`.
     pub fn duration(&self) -> Rational {
         self.end - self.start
     }
 
+    /// `true` if `t` is on or after `start` and strictly before `end`.
     pub fn contains(&self, t: Rational) -> bool {
         t >= self.start && t < self.end
     }
 
+    /// `true` if the two half-open intervals intersect with positive measure (touching at an endpoint does not count).
     pub fn overlaps(&self, other: &Span) -> bool {
         self.start < other.end && other.start < self.end
     }

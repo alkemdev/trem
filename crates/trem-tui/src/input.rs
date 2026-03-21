@@ -1,12 +1,20 @@
+//! Keyboard routing: maps crossterm keys to high-level [`Action`]s for each [`Mode`].
+//!
+//! [`View`] is not passed here; callers interpret the same action differently per view.
+
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+/// Major screen: step sequencer vs. node graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
+    /// Row/column grid of notes and voices.
     Pattern,
+    /// Synth graph navigation and parameter edit target.
     Graph,
 }
 
 impl View {
+    /// Short label for the transport/header strip.
     pub fn label(self) -> &'static str {
         match self {
             View::Pattern => "PATTERN",
@@ -14,6 +22,7 @@ impl View {
         }
     }
 
+    /// Switches between pattern and graph.
     pub fn next(self) -> Self {
         match self {
             View::Pattern => View::Graph,
@@ -21,16 +30,21 @@ impl View {
         }
     }
 
+    /// Fixed ordering for UI lists that enumerate views.
     pub const ALL: [View; 2] = [View::Pattern, View::Graph];
 }
 
+/// Whether arrow/vim keys move the grid/graph or edit parameters / enter notes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
+    /// Navigation and transport-focused bindings.
     Normal,
+    /// Note entry on the pattern grid, coarse param nudge on the graph (see app handler).
     Edit,
 }
 
 impl Mode {
+    /// Short label for the status line.
     pub fn label(self) -> &'static str {
         match self {
             Mode::Normal => "NAVIGATE",
@@ -39,31 +53,43 @@ impl Mode {
     }
 }
 
+/// Semantic user intent produced from a single key press (may be ignored per view in the app).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Quit,
+    /// Tab: rotate pattern ↔ graph.
     CycleView,
+    /// `e` / Esc in edit: enter or leave edit mode.
     ToggleEdit,
+    /// Space: start/stop pattern playback.
     TogglePlay,
     MoveUp,
     MoveDown,
     MoveLeft,
     MoveRight,
+    /// Scale degree from home-row or digit keys (0–9, z/m column) while in edit mode.
     NoteInput(i32),
     DeleteNote,
     OctaveUp,
     OctaveDown,
+    /// `+`/`-`; in graph edit the app may treat these as fine param nudge instead of BPM.
     BpmUp,
     BpmDown,
+    /// `f`: Euclidean rhythm fill for the current voice column.
     EuclideanFill,
+    /// `r`: randomize notes on the current voice.
     RandomizeVoice,
+    /// `t`: reverse step order for the current voice.
     ReverseVoice,
+    /// `,` / `.`: rotate the current voice pattern along steps.
     ShiftVoiceLeft,
     ShiftVoiceRight,
+    /// `w` / `q` in edit: bump note velocity up or down.
     VelocityUp,
     VelocityDown,
 }
 
+/// Maps a key to an action for the given mode; release events and unbound keys yield `None`.
 pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
     if key.kind == KeyEventKind::Release {
         return None;

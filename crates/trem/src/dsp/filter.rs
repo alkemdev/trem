@@ -1,10 +1,18 @@
+//! Second-order IIR (biquad) filtering for gentle tone shaping on a single channel.
+//!
+//! Coefficients follow the host sample rate; [`BiquadFilter`] recomputes when the rate changes.
+
 use crate::graph::{ProcessContext, Processor, ProcessorInfo};
 use std::f64::consts::PI;
 
+/// Which spectral region the biquad emphasizes or passes; drives coefficient choice in [`BiquadFilter::new`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterType {
+    /// Attenuates content above the cutoff, keeping lows.
     LowPass,
+    /// Attenuates content below the cutoff, keeping highs.
     HighPass,
+    /// Narrow band around the center frequency; `q` controls bandwidth.
     BandPass,
 }
 
@@ -32,6 +40,7 @@ pub struct BiquadFilter {
 }
 
 impl BiquadFilter {
+    /// Builds a filter at `frequency` (Hz) with resonance/bandwidth `q`; state starts zeroed for a clean tail.
     pub fn new(filter_type: FilterType, frequency: f64, q: f64) -> Self {
         let mut f = Self {
             filter_type,

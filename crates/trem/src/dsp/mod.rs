@@ -1,3 +1,7 @@
+//! Audio DSP processors for the Trem graph: oscillators, envelopes, dynamics, mixing,
+//! filters, noise, drum voices, time-based effects, and EQ. Submodules hold implementations;
+//! this module re-exports the common processor types for convenient use from crate roots.
+
 pub mod delay;
 pub mod drums;
 pub mod env;

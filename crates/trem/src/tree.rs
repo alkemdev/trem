@@ -1,3 +1,7 @@
+//! Hierarchical rhythm trees: sequential splits, parallel layers, and weighted subdivisions.
+//!
+//! Flattening maps the abstract tree onto a normalized `[0, 1)` timeline for quantization and playback.
+
 use crate::math::Rational;
 
 /// Recursive temporal tree structure.
@@ -38,22 +42,27 @@ pub struct OwnedFlatEvent<E> {
 }
 
 impl<E> Tree<E> {
+    /// One event spanning the entire local time window.
     pub fn leaf(event: E) -> Self {
         Tree::Leaf(event)
     }
 
+    /// Silence for the full local span; produces no leaves when flattened.
     pub fn rest() -> Self {
         Tree::Rest
     }
 
+    /// Divides time evenly across `children` in order; empty `children` yield no output.
     pub fn seq(children: Vec<Tree<E>>) -> Self {
         Tree::Seq(children)
     }
 
+    /// All `children` run for the full span simultaneously (layered voices).
     pub fn par(children: Vec<Tree<E>>) -> Self {
         Tree::Par(children)
     }
 
+    /// Like [`Tree::Seq`], but each child’s share is `weight / sum(weights)`; zero total weight yields nothing.
     pub fn weight(children: Vec<(Rational, Tree<E>)>) -> Self {
         Tree::Weight(children)
     }
@@ -155,12 +164,12 @@ impl<E> Tree<E> {
         }
     }
 
-    /// Count the leaf events in the tree.
+    /// Number of [`Tree::Leaf`] nodes (excluding [`Tree::Rest`]).
     pub fn count_leaves(&self) -> usize {
         self.fold(0, &|acc, _| acc + 1)
     }
 
-    /// Maximum nesting depth.
+    /// Longest path from root to a leaf; a single leaf or rest has depth `0`.
     pub fn depth(&self) -> usize {
         match self {
             Tree::Leaf(_) | Tree::Rest => 0,
@@ -171,7 +180,7 @@ impl<E> Tree<E> {
 }
 
 impl<E: Clone> Tree<E> {
-    /// Flatten to owned events (clones leaf data).
+    /// Same as [`Tree::flatten`], but clones each leaf into an [`OwnedFlatEvent`].
     pub fn flatten_owned(&self) -> Vec<OwnedFlatEvent<E>> {
         self.flatten()
             .into_iter()

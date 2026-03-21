@@ -1,3 +1,7 @@
+//! Row/column pattern editor backed by a flat cell vec and [`Tree`] conversion.
+//!
+//! Rows are time steps, columns are voices; Euclidean fills and column ops target one voice at a time.
+
 use crate::event::NoteEvent;
 use crate::tree::Tree;
 
@@ -16,6 +20,7 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// Empty grid: `rows * columns` cells, all `None`.
     pub fn new(rows: u32, columns: u32) -> Self {
         let size = (rows * columns) as usize;
         Self {
@@ -29,10 +34,12 @@ impl Grid {
         (row * self.columns + col) as usize
     }
 
+    /// Borrows the note at `(row, col)`, or `None` if the cell is empty. Panics if `row`/`col` are out of bounds.
     pub fn get(&self, row: u32, col: u32) -> Option<&NoteEvent> {
         self.cells[self.idx(row, col)].as_ref()
     }
 
+    /// Writes `event` into `(row, col)`. Panics if `row`/`col` are out of bounds.
     pub fn set(&mut self, row: u32, col: u32, event: Option<NoteEvent>) {
         let idx = self.idx(row, col);
         self.cells[idx] = event;
@@ -79,17 +86,17 @@ impl Grid {
         grid
     }
 
-    /// Count non-empty cells.
+    /// Number of cells holding a [`NoteEvent`].
     pub fn count_events(&self) -> usize {
         self.cells.iter().filter(|c| c.is_some()).count()
     }
 
-    /// Check if a row has any events.
+    /// `true` if any column in `row` is non-empty. Panics if `row` is out of bounds.
     pub fn row_has_events(&self, row: u32) -> bool {
         (0..self.columns).any(|col| self.get(row, col).is_some())
     }
 
-    /// Shift all events in a voice column by `offset` steps (wrapping).
+    /// Rotates column `col` vertically: positive `offset` moves events toward higher row indices, wrapping modulo `rows`.
     pub fn shift_voice(&mut self, col: u32, offset: i32) {
         let n = self.rows as i32;
         if n == 0 {
@@ -103,7 +110,7 @@ impl Grid {
         }
     }
 
-    /// Reverse the order of events in a voice column.
+    /// Mirrors column `col` top-to-bottom (row `i` swaps with `rows - 1 - i`).
     pub fn reverse_voice(&mut self, col: u32) {
         let n = self.rows;
         for i in 0..n / 2 {
@@ -115,14 +122,14 @@ impl Grid {
         }
     }
 
-    /// Clear all events in a voice column.
+    /// Sets every cell in column `col` to `None`.
     pub fn clear_voice(&mut self, col: u32) {
         for row in 0..self.rows {
             self.set(row, col, None);
         }
     }
 
-    /// Fill a voice column from a Euclidean pattern and a note template.
+    /// Writes `template` on rows where `pattern[i]` is true, clears others; only the first `rows` entries of `pattern` are used.
     pub fn fill_euclidean(&mut self, col: u32, pattern: &[bool], template: NoteEvent) {
         for (i, &hit) in pattern.iter().enumerate().take(self.rows as usize) {
             self.set(

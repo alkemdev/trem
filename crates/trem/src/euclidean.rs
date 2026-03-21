@@ -1,3 +1,7 @@
+//! Evenly spaced onsets (Euclidean rhythms) and cyclic pattern rotation.
+//!
+//! See Toussaint’s treatment of `B(k, n)` patterns; [`euclidean`] fixes the first hit on step 0.
+
 /// Euclidean rhythm generator.
 ///
 /// Distributes `hits` as evenly as possible across `steps`,

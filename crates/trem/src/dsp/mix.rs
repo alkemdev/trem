@@ -1,3 +1,5 @@
+//! Summing bus for multiple stereo sources into one stereo output with a master level control.
+
 use crate::graph::{
     ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
 };
@@ -12,6 +14,7 @@ pub struct StereoMixer {
 }
 
 impl StereoMixer {
+    /// `input_pairs` is the number of L/R input pairs (total inputs = 2 × pairs); output level defaults to 1.
     pub fn new(input_pairs: u16) -> Self {
         Self {
             input_pairs,
@@ -19,6 +22,7 @@ impl StereoMixer {
         }
     }
 
+    /// Same as [`Self::new`] but sets the post-sum gain applied to both channels.
     pub fn with_level(input_pairs: u16, level: f32) -> Self {
         Self { input_pairs, level }
     }

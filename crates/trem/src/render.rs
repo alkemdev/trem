@@ -1,3 +1,7 @@
+//! Turn [`Tree`]s and [`Grid`]s into [`TimedEvent`]s and offline multi-block [`Graph`] renders.
+//!
+//! Beat positions are converted via [`crate::time::beat_to_sample`]; each flat leaf becomes a note on/off pair.
+
 use crate::event::{GraphEvent, NoteEvent, TimedEvent};
 use crate::graph::Graph;
 use crate::grid::Grid;
@@ -62,7 +66,7 @@ pub fn tree_to_timed_events(
 
 /// Render a graph offline to sample buffers.
 ///
-/// Returns one Vec<f32> per output channel of the final node in the graph.
+/// Returns one `Vec<f32>` per output channel of the final node in the graph.
 /// The `output_node` and `output_ports` specify which node/ports to capture.
 pub fn render(
     graph: &mut Graph,

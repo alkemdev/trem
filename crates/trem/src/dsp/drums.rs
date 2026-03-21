@@ -1,3 +1,7 @@
+//! Event-driven drum voices: kick, snare, and hat synthesizers wired to `NoteOn` per voice id.
+//!
+//! Each voice is self-contained (no audio inputs); trigger velocity scales excitation and decay character.
+
 use crate::event::GraphEvent;
 use crate::graph::{ProcessContext, Processor, ProcessorInfo};
 use std::f64::consts::PI;
@@ -17,6 +21,7 @@ fn noise_sample(state: &mut u32) -> f32 {
 // KickSynth — sine oscillator with pitch sweep + amplitude envelope
 // =====================================================================
 
+/// Sine body whose pitch glides from a hit-dependent high toward a low fundamental while amplitude decays exponentially.
 pub struct KickSynth {
     pub voice_id: u32,
     phase: f64,
@@ -29,6 +34,7 @@ pub struct KickSynth {
 }
 
 impl KickSynth {
+    /// Drum voice listening for `NoteOn` on `voice_id`; internal pitch and amp envelopes define the default kick shape.
     pub fn new(voice_id: u32) -> Self {
         Self {
             voice_id,
@@ -103,6 +109,7 @@ impl Processor for KickSynth {
 // SnareSynth — sine body + bandpass-filtered noise burst
 // =====================================================================
 
+/// Short tonal thunk (sine) blended with band-limited noise around ~1 kHz for the snare wire crack.
 pub struct SnareSynth {
     pub voice_id: u32,
     // Body: sine tone
@@ -128,6 +135,7 @@ pub struct SnareSynth {
 }
 
 impl SnareSynth {
+    /// Configures the snare for `voice_id` and initializes the body/noise paths and bandpass coefficients.
     pub fn new(voice_id: u32) -> Self {
         let mut s = Self {
             voice_id,
@@ -251,6 +259,7 @@ impl Processor for SnareSynth {
 // HatSynth — highpass-filtered noise with short envelope
 // =====================================================================
 
+/// Bright, metallic character from highpass-filtered noise and a fast decay; velocity tweaks decay rate.
 pub struct HatSynth {
     pub voice_id: u32,
     amp: f64,
@@ -270,6 +279,7 @@ pub struct HatSynth {
 }
 
 impl HatSynth {
+    /// Hat voice for `voice_id` with an ~8 kHz highpass and short exponential ring-off by default.
     pub fn new(voice_id: u32) -> Self {
         let mut s = Self {
             voice_id,

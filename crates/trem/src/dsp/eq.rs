@@ -1,3 +1,5 @@
+//! Three peaking bands per channel, cascaded for broad tone control on a stereo bus.
+
 use crate::graph::{
     ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
 };
@@ -69,6 +71,7 @@ fn compute_peaking(freq: f64, gain_db: f64, q: f64, sr: f64) -> BiquadCoeffs {
 }
 
 impl ParametricEq {
+    /// Flat response with default corner frequencies (~200 Hz, 1 kHz, 5 kHz) and unity gain on each peaking band.
     pub fn new() -> Self {
         Self {
             bands: [
@@ -95,6 +98,7 @@ impl ParametricEq {
         }
     }
 
+    /// Same defaults as [`Self::new`] but sets the three band center frequencies before processing.
     pub fn with_bands(lo_freq: f64, mid_freq: f64, hi_freq: f64) -> Self {
         let mut eq = Self::new();
         eq.bands[0].freq = lo_freq;

@@ -1,4 +1,6 @@
-//! `cpal` output stream driving a [`trem::graph::Graph`] with command/notification bridging.
+//! `cpal` output stream driving a [`trem::graph::Graph`] with [`crate::bridge`] command/notification bridging.
+//!
+//! [`AudioEngine`] builds the device stream, drains any stale commands, and runs the graph in the callback.
 
 use crate::bridge::{AudioBridge, Command, Notification};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -209,12 +211,14 @@ impl CallbackState {
     }
 }
 
+/// Live output stream; dropping it stops audio and releases the device.
 pub struct AudioEngine {
     /// Kept so the device keeps playing until the engine is dropped.
     pub stream: Stream,
 }
 
 impl AudioEngine {
+    /// Opens the default F32 stereo output at `sample_rate`, wiring `audio_bridge` and `graph` into the callback.
     pub fn new(
         audio_bridge: AudioBridge,
         graph: Graph,

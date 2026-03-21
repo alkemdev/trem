@@ -1,3 +1,7 @@
+//! Main TUI application: grid, views, transport, and [`trem_cpal::Bridge`] integration.
+//!
+//! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
+
 use crate::input::{self, Action, Mode, View};
 use crate::view::graph::GraphViewWidget;
 use crate::view::info::InfoView;
@@ -16,6 +20,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+/// Mutable state for the full terminal UI: pattern/graph views, audio bridge, and layout data.
 pub struct App {
     pub grid: trem::grid::Grid,
     pub cursor_row: u32,
@@ -50,6 +55,7 @@ pub struct App {
 }
 
 impl App {
+    /// Initial pattern view, scale metadata, and per-column voice IDs for [`trem_cpal::Command::NoteOn`].
     pub fn new(
         grid: trem::grid::Grid,
         scale: trem::pitch::Scale,
@@ -95,6 +101,7 @@ impl App {
         }
     }
 
+    /// Attaches node/edge/param snapshots for the graph editor (from the host graph).
     pub fn with_graph_info(
         mut self,
         nodes: Vec<(u32, String)>,
@@ -111,6 +118,7 @@ impl App {
         self
     }
 
+    /// Applies one [`Action`] from input: updates state and sends [`Command`]s to the audio bridge as needed.
     pub fn handle_action(&mut self, action: Action) {
         match action {
             Action::Quit => self.should_quit = true,
@@ -420,6 +428,7 @@ impl App {
         }
     }
 
+    /// Drains pending [`Notification`]s and timed preview note-off; call each frame from the UI loop.
     pub fn poll_audio(&mut self) {
         // Handle preview note release
         if let Some((voice, time)) = self.preview_note_off {
@@ -468,6 +477,7 @@ impl App {
         self.bridge.send(Command::LoadEvents(events));
     }
 
+    /// Lays out transport, sidebar, main view (pattern or graph), and scope into `frame`.
     pub fn draw(&self, frame: &mut ratatui::Frame) {
         let outer = Layout::default()
             .direction(Direction::Vertical)
@@ -561,6 +571,7 @@ impl App {
         );
     }
 
+    /// Terminal main loop until quit: render, handle keys, poll notifications.
     pub fn run<B>(mut self, terminal: &mut ratatui::Terminal<B>) -> anyhow::Result<()>
     where
         B: ratatui::backend::Backend,

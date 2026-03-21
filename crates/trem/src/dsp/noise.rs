@@ -1,3 +1,5 @@
+//! White noise from a small deterministic PRNG—useful for percussion, air, or modulation sources.
+
 use crate::graph::{ProcessContext, Processor, ProcessorInfo};
 
 /// White noise generator using a linear congruential generator.
@@ -7,10 +9,12 @@ pub struct Noise {
 }
 
 impl Noise {
+    /// Default seed; same instance always produces the same sequence after construction or [`Processor::reset`].
     pub fn new() -> Self {
         Self { state: 0x12345678 }
     }
 
+    /// Chooses a starting LCG state (forced odd) so parallel noise nodes can be uncorrelated.
     pub fn with_seed(seed: u32) -> Self {
         Self { state: seed | 1 }
     }

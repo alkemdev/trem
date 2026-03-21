@@ -1,3 +1,8 @@
+//! TUI color palette and small [`ratatui::style::Style`] builders shared by widgets.
+//!
+//! **Palette:** `BG`/`FG` base text; `SURFACE` panels; `ACCENT`/`TITLE` emphasis; `DIM`/`MUTED` de-emphasis;
+//! `HIGHLIGHT` cursor; `ACTIVE_ROW` playhead; `NOTE_COLOR` filled cells; `GREEN`/`YELLOW` status accents.
+
 use ratatui::style::{Color, Modifier, Style};
 
 pub const BG: Color = Color::Rgb(18, 18, 24);
@@ -12,18 +17,22 @@ pub const MUTED: Color = Color::Rgb(55, 55, 70);
 pub const GREEN: Color = Color::Rgb(80, 200, 120);
 pub const YELLOW: Color = Color::Rgb(230, 200, 80);
 
+/// Top bar / section titles.
 pub fn header() -> Style {
     Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)
 }
 
+/// Default empty grid cell.
 pub fn cell_empty() -> Style {
     Style::new().fg(DIM).bg(BG)
 }
 
+/// Cell that contains a note (before velocity tinting).
 pub fn cell_note() -> Style {
     Style::new().fg(NOTE_COLOR).bg(BG)
 }
 
+/// Highlight for the editor cursor cell.
 pub fn cell_cursor() -> Style {
     Style::new()
         .fg(FG)
@@ -31,22 +40,27 @@ pub fn cell_cursor() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
+/// Transport strip background/text.
 pub fn transport() -> Style {
     Style::new().fg(FG).bg(SURFACE)
 }
 
+/// Widget borders and dividers.
 pub fn border() -> Style {
     Style::new().fg(MUTED).bg(BG)
 }
 
+/// Secondary labels (dim on canvas).
 pub fn label() -> Style {
     Style::new().fg(DIM).bg(BG)
 }
 
+/// Primary values next to labels.
 pub fn value() -> Style {
     Style::new().fg(FG).bg(BG)
 }
 
+/// Panel titles (accent, bold).
 pub fn title() -> Style {
     Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)
 }

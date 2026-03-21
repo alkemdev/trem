@@ -1,3 +1,8 @@
+//! Exact arithmetic for time and rhythm: least common multiple and reduced rationals.
+//!
+//! [`Rational`] keeps fractions in lowest terms so comparisons and tempo math stay stable
+//! without floating-point drift.
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -11,6 +16,7 @@ fn gcd(mut a: u64, mut b: u64) -> u64 {
     a
 }
 
+/// Smallest positive integer divisible by both `a` and `b`; returns `0` if either input is zero.
 pub fn lcm(a: u64, b: u64) -> u64 {
     if a == 0 || b == 0 {
         0
@@ -27,6 +33,7 @@ pub struct Rational {
 }
 
 impl Rational {
+    /// Builds a reduced fraction `num/den`. Panics if `den == 0`. Zero always uses denominator `1`.
     pub fn new(num: i64, den: u64) -> Self {
         assert!(den != 0, "Rational denominator must be nonzero");
         if num == 0 {
@@ -39,30 +46,37 @@ impl Rational {
         }
     }
 
+    /// Whole number `n/1` without normalization work beyond storing `n`.
     pub fn integer(n: i64) -> Self {
         Self { num: n, den: 1 }
     }
 
+    /// The additive identity `0/1`.
     pub fn zero() -> Self {
         Self { num: 0, den: 1 }
     }
 
+    /// The multiplicative identity `1/1`.
     pub fn one() -> Self {
         Self { num: 1, den: 1 }
     }
 
+    /// `true` when the numerator is zero (denominator is always normalized to `1` for zero).
     pub fn is_zero(self) -> bool {
         self.num == 0
     }
 
+    /// `true` when the value is strictly greater than zero.
     pub fn is_positive(self) -> bool {
         self.num > 0
     }
 
+    /// `true` when the value is strictly less than zero.
     pub fn is_negative(self) -> bool {
         self.num < 0
     }
 
+    /// Absolute value; denominator stays positive.
     pub fn abs(self) -> Self {
         Self {
             num: self.num.abs(),
@@ -70,6 +84,7 @@ impl Rational {
         }
     }
 
+    /// Multiplicative inverse, normalized. Panics if `self` is zero.
     pub fn recip(self) -> Self {
         assert!(self.num != 0, "Cannot take reciprocal of zero");
         if self.num > 0 {
@@ -79,6 +94,7 @@ impl Rational {
         }
     }
 
+    /// Greatest integer ≤ this value (toward −∞), matching Rust’s `f64::floor` semantics on rationals.
     pub fn floor(self) -> i64 {
         if self.den == 1 {
             return self.num;
@@ -91,6 +107,7 @@ impl Rational {
         }
     }
 
+    /// Smallest integer ≥ this value (toward +∞).
     pub fn ceil(self) -> i64 {
         if self.den == 1 {
             return self.num;
@@ -103,10 +120,12 @@ impl Rational {
         }
     }
 
+    /// Approximate value; may not be exactly representable as `f64`.
     pub fn to_f64(self) -> f64 {
         self.num as f64 / self.den as f64
     }
 
+    /// The smaller of `self` and `other` by [`Ord`].
     pub fn min(self, other: Self) -> Self {
         if self <= other {
             self
@@ -115,6 +134,7 @@ impl Rational {
         }
     }
 
+    /// The larger of `self` and `other` by [`Ord`].
     pub fn max(self, other: Self) -> Self {
         if self >= other {
             self
