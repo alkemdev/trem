@@ -1785,6 +1785,8 @@ dependencies = [
  "anyhow",
  "crossterm 0.28.1",
  "ratatui",
+ "serde",
+ "serde_json",
  "trem",
  "trem-cpal",
 ]

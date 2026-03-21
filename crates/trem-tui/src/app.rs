@@ -3,6 +3,7 @@
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
 use crate::input::{self, Action, Mode, View};
+use crate::project::ProjectData;
 use crate::view::graph::GraphViewWidget;
 use crate::view::info::InfoView;
 use crate::view::pattern::PatternView;
@@ -18,7 +19,20 @@ use trem_cpal::{Bridge, Command, Notification};
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout};
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+const GATE_PRESETS: [(i64, u64); 4] = [(1, 4), (1, 2), (3, 4), (7, 8)];
+
+fn cycle_gate(current: Rational) -> Rational {
+    for (i, &(n, d)) in GATE_PRESETS.iter().enumerate() {
+        if current == Rational::new(n, d) {
+            let next = GATE_PRESETS[(i + 1) % GATE_PRESETS.len()];
+            return Rational::new(next.0, next.1);
+        }
+    }
+    Rational::new(1, 4)
+}
 
 /// Mutable state for the full terminal UI: pattern/graph views, audio bridge, and layout data.
 pub struct App {
@@ -49,7 +63,10 @@ pub struct App {
     pub graph_params: Vec<Vec<ParamDescriptor>>,
     pub graph_param_values: Vec<Vec<f64>>,
     pub param_cursor: usize,
+    pub swing: f64,
     pub euclidean_k: u32,
+    pub undo_stack: Vec<Vec<Option<NoteEvent>>>,
+    pub redo_stack: Vec<Vec<Option<NoteEvent>>>,
     rng_state: u64,
     preview_note_off: Option<(u32, Instant)>,
 }
@@ -92,7 +109,10 @@ impl App {
             graph_params: Vec::new(),
             graph_param_values: Vec::new(),
             param_cursor: 0,
+            swing: 0.0,
             euclidean_k: 0,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
             rng_state: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -184,7 +204,60 @@ impl App {
                 (View::Graph, Mode::Normal) => self.graph_move_right(),
                 (View::Graph, Mode::Edit) => self.adjust_param(0.01),
             },
+            Action::Undo => self.undo(),
+            Action::Redo => self.redo(),
+            Action::SaveProject => {
+                let path = PathBuf::from("project.trem.json");
+                let data = ProjectData::from_app(self);
+                if let Err(e) = crate::project::save(&path, &data) {
+                    eprintln!("save error: {e}");
+                }
+            }
+            Action::LoadProject => {
+                let path = PathBuf::from("project.trem.json");
+                match crate::project::load(&path) {
+                    Ok(data) => {
+                        self.push_undo();
+                        data.apply_to_app(self);
+                        if self.playing {
+                            self.send_pattern();
+                        }
+                    }
+                    Err(e) => eprintln!("load error: {e}"),
+                }
+            }
+            Action::SwingUp => {
+                self.swing = (self.swing + 0.05).min(0.9);
+                if self.playing {
+                    self.send_pattern();
+                }
+            }
+            Action::SwingDown => {
+                self.swing = (self.swing - 0.05).max(0.0);
+                if self.playing {
+                    self.send_pattern();
+                }
+            }
+            Action::GateCycle => {
+                if self.view == View::Pattern {
+                    if let Some(note) = self.grid.get(self.cursor_row, self.cursor_col).cloned() {
+                        self.push_undo();
+                        let new_gate = cycle_gate(note.gate);
+                        let mut updated = note;
+                        updated.gate = new_gate;
+                        self.grid
+                            .set(self.cursor_row, self.cursor_col, Some(updated));
+                        if self.playing {
+                            self.send_pattern();
+                        }
+                    }
+                }
+            }
             Action::NoteInput(degree) => {
+                if self.view != View::Pattern {
+                    return;
+                }
+                self.push_undo();
                 let event = NoteEvent::new(degree, self.octave, Rational::new(3, 4));
                 let voice_id = self
                     .voice_ids
@@ -192,7 +265,6 @@ impl App {
                     .copied()
                     .unwrap_or(0);
 
-                // Release any previous preview
                 if let Some((old_voice, _)) = self.preview_note_off.take() {
                     self.bridge.send(Command::NoteOff { voice: old_voice });
                 }
@@ -219,6 +291,10 @@ impl App {
                 }
             }
             Action::DeleteNote => {
+                if self.view != View::Pattern {
+                    return;
+                }
+                self.push_undo();
                 self.grid.set(self.cursor_row, self.cursor_col, None);
             }
             Action::OctaveUp => self.octave = (self.octave + 1).min(9),
@@ -241,6 +317,7 @@ impl App {
             }
             Action::EuclideanFill => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.euclidean_k = (self.euclidean_k + 1) % (self.grid.rows + 1);
                     let pattern = trem::euclidean::euclidean(self.euclidean_k, self.grid.rows);
                     let template = NoteEvent::new(0, self.octave, Rational::new(3, 4));
@@ -253,6 +330,7 @@ impl App {
             }
             Action::RandomizeVoice => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.randomize_current_voice();
                     if self.playing {
                         self.send_pattern();
@@ -261,6 +339,7 @@ impl App {
             }
             Action::ReverseVoice => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.grid.reverse_voice(self.cursor_col);
                     if self.playing {
                         self.send_pattern();
@@ -269,6 +348,7 @@ impl App {
             }
             Action::ShiftVoiceLeft => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.grid.shift_voice(self.cursor_col, -1);
                     if self.playing {
                         self.send_pattern();
@@ -277,6 +357,7 @@ impl App {
             }
             Action::ShiftVoiceRight => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.grid.shift_voice(self.cursor_col, 1);
                     if self.playing {
                         self.send_pattern();
@@ -285,6 +366,7 @@ impl App {
             }
             Action::VelocityUp => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.adjust_note_velocity(Rational::new(1, 8));
                     if self.playing {
                         self.send_pattern();
@@ -293,6 +375,7 @@ impl App {
             }
             Action::VelocityDown => {
                 if self.view == View::Pattern {
+                    self.push_undo();
                     self.adjust_note_velocity(Rational::new(-1, 8));
                     if self.playing {
                         self.send_pattern();
@@ -473,8 +556,37 @@ impl App {
             &self.scale,
             440.0,
             &self.voice_ids,
+            self.swing,
         );
         self.bridge.send(Command::LoadEvents(events));
+    }
+
+    fn push_undo(&mut self) {
+        self.undo_stack.push(self.grid.cells.clone());
+        if self.undo_stack.len() > 100 {
+            self.undo_stack.remove(0);
+        }
+        self.redo_stack.clear();
+    }
+
+    fn undo(&mut self) {
+        if let Some(snapshot) = self.undo_stack.pop() {
+            self.redo_stack.push(self.grid.cells.clone());
+            self.grid.cells = snapshot;
+            if self.playing {
+                self.send_pattern();
+            }
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(snapshot) = self.redo_stack.pop() {
+            self.undo_stack.push(self.grid.cells.clone());
+            self.grid.cells = snapshot;
+            if self.playing {
+                self.send_pattern();
+            }
+        }
     }
 
     /// Lays out transport, sidebar, main view (pattern or graph), and scope into `frame`.
@@ -497,6 +609,7 @@ impl App {
                 view: &self.view,
                 scale_name: &self.scale_name,
                 octave: self.octave,
+                swing: self.swing,
             },
             outer[0],
         );
@@ -523,6 +636,9 @@ impl App {
                 peak_l: self.peak_l,
                 peak_r: self.peak_r,
                 instrument_names: &self.instrument_names,
+                swing: self.swing,
+                euclidean_k: self.euclidean_k,
+                undo_depth: self.undo_stack.len(),
             },
             middle[0],
         );

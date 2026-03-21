@@ -12,6 +12,19 @@ const NOTE_NAMES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
 
+fn format_gate(gate: &trem::math::Rational) -> String {
+    let v = gate.to_f64();
+    if v <= 0.26 {
+        format!("staccato ({})", gate)
+    } else if v <= 0.51 {
+        format!("short ({})", gate)
+    } else if v <= 0.76 {
+        format!("medium ({})", gate)
+    } else {
+        format!("legato ({})", gate)
+    }
+}
+
 fn format_note_long(event: &NoteEvent, scale: &Scale) -> String {
     if scale.len() == 12 {
         let idx = event.degree.rem_euclid(12) as usize;
@@ -43,19 +56,22 @@ fn context_hints(view: &View, mode: &Mode) -> Vec<(&'static str, &'static str)> 
             ("\u{2190}\u{2192}\u{2191}\u{2193}", "move"),
             ("+/-", "bpm"),
             ("[/]", "oct"),
+            ("{/}", "swing"),
+            ("u/U", "undo/redo"),
             ("q", "quit"),
         ],
         (View::Pattern, Mode::Edit) => vec![
             ("ESC", "nav"),
             ("z-m", "notes"),
             ("DEL", "clear"),
+            ("a", "gate"),
             ("f", "euclidean"),
             ("r", "random"),
             ("t", "reverse"),
             (",/.", "shift"),
             ("w/q", "vel +/-"),
+            ("{/}", "swing"),
             ("SPC", "play"),
-            ("[/]", "oct"),
         ],
         (View::Graph, Mode::Normal) => vec![
             ("TAB", "view"),
@@ -89,6 +105,9 @@ pub struct InfoView<'a> {
     pub peak_l: f32,
     pub peak_r: f32,
     pub instrument_names: &'a [String],
+    pub swing: f64,
+    pub euclidean_k: u32,
+    pub undo_depth: usize,
 }
 
 impl<'a> Widget for InfoView<'a> {
@@ -202,6 +221,17 @@ impl<'a> Widget for InfoView<'a> {
             )],
         );
 
+        if let Some(n) = self.note_at_cursor {
+            let gate_label = format_gate(&n.gate);
+            draw_kv(buf, &mut y, "Gate", vec![Span::styled(gate_label, val)]);
+            draw_kv(
+                buf,
+                &mut y,
+                "Vel",
+                vec![Span::styled(format!("{}", n.velocity), val)],
+            );
+        }
+
         y += 1;
         if y >= y_max {
             return;
@@ -226,6 +256,36 @@ impl<'a> Widget for InfoView<'a> {
             "Oct",
             vec![Span::styled(format!("{}", self.octave), val)],
         );
+        if self.swing > 0.001 {
+            draw_kv(
+                buf,
+                &mut y,
+                "Swing",
+                vec![Span::styled(
+                    format!("{:.0}%", self.swing * 100.0),
+                    Style::new().fg(theme::YELLOW).bg(theme::BG),
+                )],
+            );
+        }
+        if self.euclidean_k > 0 {
+            draw_kv(
+                buf,
+                &mut y,
+                "Euclid",
+                vec![Span::styled(
+                    format!("{}/{}", self.euclidean_k, self.grid_steps),
+                    Style::new().fg(theme::ACCENT).bg(theme::BG),
+                )],
+            );
+        }
+        if self.undo_depth > 0 {
+            draw_kv(
+                buf,
+                &mut y,
+                "Undo",
+                vec![Span::styled(format!("{} steps", self.undo_depth), dim)],
+            );
+        }
 
         y += 1;
         if y >= y_max {

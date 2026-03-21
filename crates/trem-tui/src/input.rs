@@ -87,6 +87,19 @@ pub enum Action {
     /// `w` / `q` in edit: bump note velocity up or down.
     VelocityUp,
     VelocityDown,
+    /// `a` in edit: cycle gate length (staccato → medium → legato → full).
+    GateCycle,
+    /// `u`: undo the last grid edit.
+    Undo,
+    /// `U` (shift+u): redo the last undone edit.
+    Redo,
+    /// `{` / `}`: adjust swing amount down / up.
+    SwingUp,
+    SwingDown,
+    /// Ctrl+s: save project.
+    SaveProject,
+    /// Ctrl+o: load project.
+    LoadProject,
 }
 
 /// Maps a key to an action for the given mode; release events and unbound keys yield `None`.
@@ -98,6 +111,10 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         return match key.code {
             KeyCode::Char('c') | KeyCode::Char('q') => Some(Action::Quit),
+            KeyCode::Char('s') => Some(Action::SaveProject),
+            KeyCode::Char('o') => Some(Action::LoadProject),
+            KeyCode::Char('z') => Some(Action::Undo),
+            KeyCode::Char('y') => Some(Action::Redo),
             _ => None,
         };
     }
@@ -113,6 +130,8 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         KeyCode::Char('-') => return Some(Action::BpmDown),
         KeyCode::Char('[') => return Some(Action::OctaveDown),
         KeyCode::Char(']') => return Some(Action::OctaveUp),
+        KeyCode::Char('{') => return Some(Action::SwingDown),
+        KeyCode::Char('}') => return Some(Action::SwingUp),
         KeyCode::Esc if *mode == Mode::Edit => return Some(Action::ToggleEdit),
         _ => {}
     }
@@ -121,6 +140,8 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         Mode::Normal => match key.code {
             KeyCode::Char('q') => Some(Action::Quit),
             KeyCode::Char('e') => Some(Action::ToggleEdit),
+            KeyCode::Char('u') => Some(Action::Undo),
+            KeyCode::Char('U') => Some(Action::Redo),
             KeyCode::Char('h') => Some(Action::MoveLeft),
             KeyCode::Char('l') => Some(Action::MoveRight),
             KeyCode::Char('k') => Some(Action::MoveUp),
@@ -149,6 +170,7 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
             KeyCode::Char('.') => Some(Action::ShiftVoiceRight),
             KeyCode::Char('w') => Some(Action::VelocityUp),
             KeyCode::Char('q') => Some(Action::VelocityDown),
+            KeyCode::Char('a') => Some(Action::GateCycle),
             _ => None,
         },
     }

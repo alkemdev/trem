@@ -3,7 +3,9 @@
 //! Each voice is self-contained (no audio inputs); trigger velocity scales excitation and decay character.
 
 use crate::event::GraphEvent;
-use crate::graph::{ProcessContext, Processor, ProcessorInfo};
+use crate::graph::{
+    ParamDescriptor, ParamFlags, ParamUnit, ProcessContext, Processor, ProcessorInfo,
+};
 use std::f64::consts::PI;
 
 // --- Shared helpers ---
@@ -102,6 +104,56 @@ impl Processor for KickSynth {
         self.amp = 0.0;
         self.phase = 0.0;
         self.freq = self.freq_target;
+    }
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![
+            ParamDescriptor {
+                id: 0,
+                name: "Pitch",
+                min: 20.0,
+                max: 200.0,
+                default: 50.0,
+                unit: ParamUnit::Hertz,
+                flags: ParamFlags::LOG_SCALE,
+            },
+            ParamDescriptor {
+                id: 1,
+                name: "Decay",
+                min: 2.0,
+                max: 30.0,
+                default: 8.0,
+                unit: ParamUnit::Linear,
+                flags: ParamFlags::NONE,
+            },
+            ParamDescriptor {
+                id: 2,
+                name: "Sweep",
+                min: 5.0,
+                max: 80.0,
+                default: 30.0,
+                unit: ParamUnit::Linear,
+                flags: ParamFlags::NONE,
+            },
+        ]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.freq_target,
+            1 => self.amp_decay,
+            2 => self.freq_decay,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.freq_target = value.clamp(20.0, 200.0),
+            1 => self.amp_decay = value.clamp(2.0, 30.0),
+            2 => self.freq_decay = value.clamp(5.0, 80.0),
+            _ => {}
+        }
     }
 }
 
@@ -253,6 +305,56 @@ impl Processor for SnareSynth {
         self.noise_amp = 0.0;
         self.body_phase = 0.0;
     }
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![
+            ParamDescriptor {
+                id: 0,
+                name: "Tone",
+                min: 80.0,
+                max: 400.0,
+                default: 200.0,
+                unit: ParamUnit::Hertz,
+                flags: ParamFlags::LOG_SCALE,
+            },
+            ParamDescriptor {
+                id: 1,
+                name: "Body",
+                min: 5.0,
+                max: 60.0,
+                default: 25.0,
+                unit: ParamUnit::Linear,
+                flags: ParamFlags::NONE,
+            },
+            ParamDescriptor {
+                id: 2,
+                name: "Noise",
+                min: 5.0,
+                max: 40.0,
+                default: 15.0,
+                unit: ParamUnit::Linear,
+                flags: ParamFlags::NONE,
+            },
+        ]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.body_freq,
+            1 => self.body_decay,
+            2 => self.noise_decay,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.body_freq = value.clamp(80.0, 400.0),
+            1 => self.body_decay = value.clamp(5.0, 60.0),
+            2 => self.noise_decay = value.clamp(5.0, 40.0),
+            _ => {}
+        }
+    }
 }
 
 // =====================================================================
@@ -326,7 +428,6 @@ impl HatSynth {
 
     fn trigger(&mut self, velocity: f64) {
         self.amp = velocity;
-        self.decay = 20.0 + velocity * 40.0;
         self.bq_x1 = 0.0;
         self.bq_x2 = 0.0;
         self.bq_y1 = 0.0;
@@ -375,6 +476,32 @@ impl Processor for HatSynth {
 
     fn reset(&mut self) {
         self.amp = 0.0;
+    }
+
+    fn params(&self) -> Vec<ParamDescriptor> {
+        vec![ParamDescriptor {
+            id: 0,
+            name: "Decay",
+            min: 10.0,
+            max: 100.0,
+            default: 40.0,
+            unit: ParamUnit::Linear,
+            flags: ParamFlags::NONE,
+        }]
+    }
+
+    fn get_param(&self, id: u32) -> f64 {
+        match id {
+            0 => self.decay,
+            _ => 0.0,
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f64) {
+        match id {
+            0 => self.decay = value.clamp(10.0, 100.0),
+            _ => {}
+        }
     }
 }
 

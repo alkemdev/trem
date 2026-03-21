@@ -24,6 +24,9 @@ struct CallbackState {
     meter_peak_l: f32,
     meter_peak_r: f32,
     pos_acc: usize,
+    scope_buf: Box<[f32]>,
+    scope_len: usize,
+    scope_acc: usize,
 }
 
 impl CallbackState {
@@ -170,6 +173,19 @@ impl CallbackState {
         self.meter_peak_r = 0.0;
     }
 
+    fn flush_scope_if_due(&mut self) {
+        const SCOPE_INTERVAL: usize = 2048;
+        if self.scope_acc < SCOPE_INTERVAL {
+            return;
+        }
+        self.scope_acc = 0;
+        if self.scope_len > 0 {
+            let data = self.scope_buf[..self.scope_len].to_vec();
+            self.scope_len = 0;
+            let _ = self.notif_tx.push(Notification::ScopeData(data));
+        }
+    }
+
     fn process_output(&mut self, data: &mut [f32], channels: usize) {
         let frames = data.len() / channels;
 
@@ -194,6 +210,11 @@ impl CallbackState {
             if ar > self.meter_peak_r {
                 self.meter_peak_r = ar;
             }
+            if self.scope_len + 1 < self.scope_buf.len() {
+                self.scope_buf[self.scope_len] = li;
+                self.scope_buf[self.scope_len + 1] = ri;
+                self.scope_len += 2;
+            }
             if channels >= 2 {
                 data[i * channels] = li;
                 data[i * channels + 1] = ri;
@@ -201,6 +222,8 @@ impl CallbackState {
                 data[i] = 0.5 * (li + ri);
             }
         }
+        self.scope_acc += frames;
+        self.flush_scope_if_due();
         self.meter_acc += frames;
         self.flush_meter_if_due();
         if self.playing {
@@ -266,6 +289,9 @@ impl AudioEngine {
             meter_peak_l: 0.0,
             meter_peak_r: 0.0,
             pos_acc: 0,
+            scope_buf: vec![0.0f32; 8192].into_boxed_slice(),
+            scope_len: 0,
+            scope_acc: 0,
         };
         state.block_events.reserve(4096);
 

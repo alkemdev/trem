@@ -14,6 +14,7 @@ pub struct TransportView<'a> {
     pub view: &'a View,
     pub scale_name: &'a str,
     pub octave: i32,
+    pub swing: f64,
 }
 
 impl<'a> Widget for TransportView<'a> {
@@ -75,6 +76,14 @@ impl<'a> Widget for TransportView<'a> {
             Span::styled("\u{2502}", sep),
             Span::styled(format!(" oct {} ", self.octave), base),
         ]);
+
+        if self.swing > 0.001 {
+            spans.push(Span::styled("\u{2502}", sep));
+            spans.push(Span::styled(
+                format!(" swing {:.0}% ", self.swing * 100.0),
+                base.fg(theme::YELLOW),
+            ));
+        }
 
         Paragraph::new(Line::from(spans))
             .style(base)

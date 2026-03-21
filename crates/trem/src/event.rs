@@ -16,24 +16,34 @@ pub struct NoteEvent {
     pub octave: i32,
     /// Velocity as a rational in [0, 1]. Exact.
     pub velocity: Rational,
+    /// Gate length as a fraction of the step duration (0, 1].
+    /// `7/8` is default (legato-ish), `1/4` is staccato, `1/1` is full-length tie.
+    pub gate: Rational,
     /// Arbitrary parameter overrides (keyed by param id).
     pub params: Vec<(u32, f64)>,
 }
 
 impl NoteEvent {
-    /// Full note with degree, octave shift, and velocity; starts with no parameter overrides.
+    /// Full note with degree, octave shift, and velocity; gate defaults to `7/8`.
     pub fn new(degree: i32, octave: i32, velocity: Rational) -> Self {
         Self {
             degree,
             octave,
             velocity,
+            gate: Rational::new(7, 8),
             params: Vec::new(),
         }
     }
 
-    /// Default octave `0` and velocity `3/4` for quick patterns.
+    /// Default octave `0`, velocity `3/4`, gate `7/8`.
     pub fn simple(degree: i32) -> Self {
         Self::new(degree, 0, Rational::new(3, 4))
+    }
+
+    /// Sets a custom gate length; chainable.
+    pub fn with_gate(mut self, gate: Rational) -> Self {
+        self.gate = gate;
+        self
     }
 
     /// Appends a `(param_id, value)` override; chainable for multiple params.

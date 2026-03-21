@@ -9,6 +9,7 @@
 
 pub mod app;
 pub mod input;
+pub mod project;
 pub mod theme;
 pub mod view;
 

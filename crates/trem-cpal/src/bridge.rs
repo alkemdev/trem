@@ -37,7 +37,7 @@ pub enum Command {
 pub enum Notification {
     /// Approximate playhead position in beats (throttled in the callback).
     Position { beat: f64 },
-    /// Recent mono samples for the oscilloscope view.
+    /// Recent stereo samples for the oscilloscope view (interleaved L, R).
     ScopeData(Vec<f32>),
     /// Peak levels since the last meter notification (per channel).
     Meter { peak_l: f32, peak_r: f32 },

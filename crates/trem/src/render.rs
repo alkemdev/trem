@@ -146,8 +146,13 @@ pub fn grid_to_timed_events(
     scale: &Scale,
     reference_hz: f64,
     voice_ids: &[u32],
+    swing: f64,
 ) -> Vec<TimedEvent> {
     let mut events = Vec::new();
+    let rows = grid.rows as i64;
+    let step_beats = beats.to_f64() / grid.rows as f64;
+    let swing_offset_samples =
+        (swing * 0.5 * step_beats * (60.0 / bpm) * sample_rate).round() as usize;
 
     for col in 0..grid.columns {
         let vid = voice_ids.get(col as usize).copied().unwrap_or(col);
@@ -155,10 +160,18 @@ pub fn grid_to_timed_events(
         let flat = tree.flatten();
 
         for fe in &flat {
+            let step_idx = (fe.start * Rational::integer(rows)).floor();
+            let swing_samples = if step_idx.rem_euclid(2) == 1 {
+                swing_offset_samples
+            } else {
+                0
+            };
+
             let beat_start = fe.start * beats;
-            let beat_end = (fe.start + fe.duration) * beats;
-            let sample_on = beat_to_sample(beat_start, bpm, sample_rate) as usize;
-            let sample_off = beat_to_sample(beat_end, bpm, sample_rate) as usize;
+            let gated_dur = fe.duration * fe.event.gate;
+            let beat_end = (fe.start + gated_dur) * beats;
+            let sample_on = beat_to_sample(beat_start, bpm, sample_rate) as usize + swing_samples;
+            let sample_off = beat_to_sample(beat_end, bpm, sample_rate) as usize + swing_samples;
             let freq = resolve_frequency(fe.event, scale, reference_hz);
             let vel = fe.event.velocity.to_f64();
 

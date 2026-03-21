@@ -11,15 +11,30 @@ const NOTE_NAMES: [&str; 12] = [
     "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
 ];
 
+fn gate_suffix(event: &NoteEvent) -> &'static str {
+    let g = event.gate.to_f64();
+    if g <= 0.26 {
+        "\u{00b7}"
+    } else if g <= 0.51 {
+        ":"
+    } else if g <= 0.76 {
+        "\u{2502}"
+    } else {
+        ""
+    }
+}
+
 fn format_note(event: &NoteEvent, scale: &Scale) -> String {
+    let suffix = gate_suffix(event);
     if scale.len() == 12 {
         let idx = event.degree.rem_euclid(12) as usize;
-        format!("{}{}", NOTE_NAMES[idx], event.octave)
+        format!("{}{}{}", NOTE_NAMES[idx], event.octave, suffix)
     } else {
         format!(
-            "{}.{}",
+            "{}.{}{}",
             event.degree.rem_euclid(scale.len() as i32),
-            event.octave
+            event.octave,
+            suffix
         )
     }
 }
