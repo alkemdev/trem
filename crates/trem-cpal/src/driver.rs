@@ -74,16 +74,29 @@ impl CallbackState {
                 Command::Play => {
                     self.playing = true;
                 }
+                Command::Pause => {
+                    self.playing = false;
+                    self.graph.reset();
+                }
                 Command::Stop => {
                     self.playing = false;
                     self.playhead = 0;
                     self.graph.reset();
                 }
                 Command::LoadEvents(mut events) => {
+                    let old_len = self.pattern_len;
                     std::mem::swap(&mut self.pattern_events, &mut events);
                     drop(events);
                     self.pattern_len = Self::pattern_len_from_events(&self.pattern_events);
-                    self.playhead = 0;
+                    if self.pattern_len == 0 {
+                        self.playhead = 0;
+                    } else if old_len == 0 {
+                        // First pattern bound to this stream: always start at loop start.
+                        self.playhead = 0;
+                    } else {
+                        // Hot-swap (edit while playing/paused): keep position in the loop.
+                        self.playhead %= self.pattern_len;
+                    }
                     self.block_events
                         .reserve(self.pattern_events.len().saturating_mul(8).max(256));
                 }

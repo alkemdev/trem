@@ -63,7 +63,7 @@ impl Widget for HelpOverlay {
                 key("Tab"),
                 dim(" next editor  "),
                 key("Space"),
-                dim(" play/stop  "),
+                dim(" play/pause"),
                 key("?"),
                 dim(" this screen  "),
                 key("Esc"),

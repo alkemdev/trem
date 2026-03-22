@@ -74,7 +74,7 @@ processor registry, and offline rendering. No runtime dependencies beyond
 
 **trem-cpal** — Real-time audio backend. Drives a `Graph` from a cpal output
 stream. Communicates with the UI via a lock-free ring buffer (`rtrb`): the UI
-sends `Command`s (play, stop, set parameter), the audio thread sends back
+sends `Command`s (play, pause, stop, set parameter), the audio thread sends back
 `Notification`s (beat position, meter levels).
 
 **trem-tui** — Terminal interface. Pattern sequencer with per-step note entry,
@@ -112,7 +112,7 @@ Hat > ─────┘
 
 Every node marked `>` is a nested graph you can Enter to inspect and edit.
 
-Press **Space** to play/stop. Press **Tab** to switch views. The bottom strip defaults
+Press **Space** to play/pause. Press **Tab** to switch views. The bottom strip defaults
 to the **spectrum**. Bins use **per-bin** peak decay (\(\tau \approx 18\) ms, `App::spectrum_fall_ms`) and **adaptive level**:
 a decaying global peak + silence-aware reference so quiet buffers don’t normalize to full height;
 each column uses the **max** of its FFT bins. In **Graph**
@@ -129,7 +129,7 @@ The transport bar shows beat position with a **φ-weighted** phase glyph for a s
 
 | Key           | Action              |
 |---------------|---------------------|
-| `Space`       | Play / stop         |
+| `Space`       | Play / pause        |
 | `Tab`         | Cycle **SEQ** ↔ **GRAPH** |
 | `?`           | Full keymap overlay |
 | `+` / `-`     | BPM up / down       |

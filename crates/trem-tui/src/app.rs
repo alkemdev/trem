@@ -60,6 +60,9 @@ pub struct App {
     pub help_open: bool,
     pub bpm: f64,
     pub playing: bool,
+    /// After the first **Play**, pattern edits sync to the audio thread even while **paused**
+    /// (playhead is held until **Play** again).
+    engine_pattern_active: bool,
     pub beat_position: f64,
     pub current_play_row: Option<u32>,
     pub scale: trem::pitch::Scale,
@@ -147,6 +150,7 @@ impl App {
             help_open: false,
             bpm: 120.0,
             playing: false,
+            engine_pattern_active: false,
             beat_position: 0.0,
             current_play_row: None,
             scale,
@@ -337,11 +341,11 @@ impl App {
             Action::TogglePlay => {
                 self.playing = !self.playing;
                 if self.playing {
+                    self.engine_pattern_active = true;
                     self.send_pattern();
                     self.bridge.send(Command::Play);
                 } else {
-                    self.bridge.send(Command::Stop);
-                    self.current_play_row = None;
+                    self.bridge.send(Command::Pause);
                 }
             }
             Action::MoveUp => match (&self.editor, &self.mode) {
@@ -398,7 +402,7 @@ impl App {
                     Ok(data) => {
                         self.push_undo();
                         data.apply_to_app(self);
-                        if self.playing {
+                        if self.should_sync_pattern() {
                             self.send_pattern();
                         }
                     }
@@ -407,13 +411,13 @@ impl App {
             }
             Action::SwingUp => {
                 self.swing = (self.swing + 0.05).min(0.9);
-                if self.playing {
+                if self.should_sync_pattern() {
                     self.send_pattern();
                 }
             }
             Action::SwingDown => {
                 self.swing = (self.swing - 0.05).max(0.0);
-                if self.playing {
+                if self.should_sync_pattern() {
                     self.send_pattern();
                 }
             }
@@ -426,7 +430,7 @@ impl App {
                         updated.gate = new_gate;
                         self.grid
                             .set(self.cursor_row, self.cursor_col, Some(updated));
-                        if self.playing {
+                        if self.should_sync_pattern() {
                             self.send_pattern();
                         }
                     }
@@ -460,6 +464,10 @@ impl App {
 
                 self.grid.set(self.cursor_row, self.cursor_col, Some(event));
 
+                if self.should_sync_pattern() {
+                    self.send_pattern();
+                }
+
                 if self.cursor_row < self.grid.rows.saturating_sub(1) {
                     self.cursor_row += 1;
                 } else {
@@ -475,9 +483,22 @@ impl App {
                 }
                 self.push_undo();
                 self.grid.set(self.cursor_row, self.cursor_col, None);
+                if self.should_sync_pattern() {
+                    self.send_pattern();
+                }
             }
-            Action::OctaveUp => self.octave = (self.octave + 1).min(9),
-            Action::OctaveDown => self.octave = (self.octave - 1).max(-4),
+            Action::OctaveUp => {
+                self.octave = (self.octave + 1).min(9);
+                if self.should_sync_pattern() {
+                    self.send_pattern();
+                }
+            }
+            Action::OctaveDown => {
+                self.octave = (self.octave - 1).max(-4);
+                if self.should_sync_pattern() {
+                    self.send_pattern();
+                }
+            }
             Action::BpmUp => {
                 if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(1);
@@ -512,7 +533,7 @@ impl App {
                     let template = NoteEvent::new(0, self.octave, Rational::new(3, 4));
                     self.grid
                         .fill_euclidean(self.cursor_col, &pattern, template);
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -521,7 +542,7 @@ impl App {
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.randomize_current_voice();
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -530,7 +551,7 @@ impl App {
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.reverse_voice(self.cursor_col);
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -539,7 +560,7 @@ impl App {
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.shift_voice(self.cursor_col, -1);
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -548,7 +569,7 @@ impl App {
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.shift_voice(self.cursor_col, 1);
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -557,7 +578,7 @@ impl App {
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.adjust_note_velocity(Rational::new(1, 8));
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -566,7 +587,7 @@ impl App {
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.adjust_note_velocity(Rational::new(-1, 8));
-                    if self.playing {
+                    if self.should_sync_pattern() {
                         self.send_pattern();
                     }
                 }
@@ -872,10 +893,16 @@ impl App {
                 }
                 Notification::Stopped => {
                     self.playing = false;
+                    self.engine_pattern_active = false;
                     self.current_play_row = None;
                 }
             }
         }
+    }
+
+    #[inline]
+    fn should_sync_pattern(&self) -> bool {
+        self.playing || self.engine_pattern_active
     }
 
     fn send_pattern(&mut self) {
@@ -905,7 +932,7 @@ impl App {
         if let Some(snapshot) = self.undo_stack.pop() {
             self.redo_stack.push(self.grid.cells.clone());
             self.grid.cells = snapshot;
-            if self.playing {
+            if self.should_sync_pattern() {
                 self.send_pattern();
             }
         }
@@ -915,7 +942,7 @@ impl App {
         if let Some(snapshot) = self.redo_stack.pop() {
             self.undo_stack.push(self.grid.cells.clone());
             self.grid.cells = snapshot;
-            if self.playing {
+            if self.should_sync_pattern() {
                 self.send_pattern();
             }
         }

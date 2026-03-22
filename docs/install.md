@@ -85,7 +85,7 @@ cargo fmt --all -- --check
 
 ## 4. Using the TUI
 
-- **Play / stop:** `Space`
+- **Play / pause:** `Space` (pauses without rewinding the loop; graph params stay live while playing)
 - **Editors:** `Tab` cycles **SEQ** (step sequencer) ↔ **GRAPH** (signal graph)
 - **Full keymap:** `?` in the app
 - **Quit:** `q` (in some modes) or `Ctrl-C`

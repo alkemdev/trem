@@ -1,5 +1,5 @@
 //! Left column: cursor, project, contextual help, keys (+ context hints), then **perf**
-//! (play/BPM, CPU/RSS, meters) at the bottom.
+//! (play/pause/BPM, CPU/RSS, meters) at the bottom.
 
 use crate::input::{Editor, Mode};
 use crate::theme;
@@ -44,7 +44,7 @@ fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static st
             ("TAB", "editor"),
             ("?", "full keys"),
             ("e", "edit"),
-            ("SPC", "play"),
+            ("SPC", "play/pause"),
             ("\u{2190}\u{2192}\u{2191}\u{2193}", "move"),
             ("+/-", "bpm"),
             ("[/]", "oct"),
@@ -65,7 +65,7 @@ fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static st
             (",/.", "shift"),
             ("w/q", "vel +/-"),
             ("{/}", "swing"),
-            ("SPC", "play"),
+            ("SPC", "play/pause"),
         ],
         (Editor::Graph, Mode::Normal) => vec![
             ("TAB", "editor"),
@@ -75,7 +75,7 @@ fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static st
             ("\u{2191}\u{2193}", "layer"),
             ("`", "scope/spec"),
             ("btm", "IN|OUT"),
-            ("SPC", "play"),
+            ("SPC", "play/pause"),
             ("q", "quit"),
         ],
         (Editor::Graph, Mode::Edit) => vec![
@@ -87,7 +87,7 @@ fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static st
             ("+/-", "fine"),
             ("`", "scope/spec"),
             ("btm", "IN|OUT"),
-            ("SPC", "play"),
+            ("SPC", "play/pause"),
         ],
     }
 }

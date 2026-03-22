@@ -4,7 +4,7 @@
 //! command/notification bridging between the audio thread and the UI.
 //!
 //! The [`Bridge`] / [`AudioBridge`] pair communicates via an [`rtrb`] ring
-//! buffer. The UI sends [`Command`]s (play, stop, set parameter, load events),
+//! buffer. The UI sends [`Command`]s (play, pause, stop, set parameter, load events),
 //! and the audio callback sends back [`Notification`]s (beat position, peak meters).
 
 pub mod bridge;

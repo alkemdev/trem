@@ -24,7 +24,9 @@ pub enum ScopeFocus {
 pub enum Command {
     /// Start pattern playback from the current playhead.
     Play,
-    /// Stop playback, reset playhead, and clear graph voice state.
+    /// Pause playback at the current playhead and silence the graph (DSP reset).
+    Pause,
+    /// Stop playback, reset playhead to the loop start, and clear graph voice state.
     Stop,
     /// Set tempo in beats per minute for position reporting and scheduling.
     SetBpm(f64),
