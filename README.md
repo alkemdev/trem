@@ -2,14 +2,11 @@
 
 A mathematical music engine in Rust.
 
-![trem logo showing TERM rearranged to TREM](docs/trem-logo.png)
+![trem logo showing TERM rearranged to TREM](docs/trem-logo-cropped.png)
 
 **trem** is a library-first DAW built on exact arithmetic, xenharmonic pitch
 systems, recursive temporal trees, and typed audio graphs. The terminal UI is a
-first-class citizen. The name is an anagram of `term` and also a nod to
-**tremolo**: repeating, pulsing motion in sound.
-
-Logo note: the `TERM -> TREM` swap matches the size-4 FFT bit-reversal permutation (`[0,1,2,3] -> [0,2,1,3]`).
+first-class citizen.
 
 ## Try it (install & run)
 
@@ -88,6 +85,11 @@ bottom pane (in **Graph** view: side-by-side **instrument bus** vs **master**
 previews), waveform scope, a **sidebar** (cursor / project / keys / contextual
 hints, with **PROC** stats for **this process** — CPU % and RSS — at the bottom),
 and contextual key hints. Built on ratatui + crossterm.
+
+**trem-rung** — **Rung** clip interchange: JSON note clips (`class` × beat time, `voice`,
+velocity, meta) for sharing between tools and building transforms. Optional
+**MIDI import** (`midly`). Crate **`trem-rung`**, import as **`trem_rung`**. See
+**`crates/trem-rung/README.md`** and **`prop/piano-roll-editor-model.md`**.
 
 ## Quick start
 
@@ -346,6 +348,15 @@ let audio = trem::render::render_pattern(
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+
+## Name
+
+`trem` is an anagram of `term` and a nod to **tremolo**.
+
+The logo's `TERM -> TREM` swap matches the size-4 FFT bit-reversal permutation
+(`[0,1,2,3] -> [0,2,1,3]`).
+
+Also: `02-13` is the author's birthday.
 
 ## License
 

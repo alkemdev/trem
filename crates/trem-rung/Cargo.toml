@@ -1,0 +1,25 @@
+[package]
+name = "trem-rung"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rung clip interchange — rational-time note grid (class × beats) for sharing and transforms"
+repository = "https://github.com/alkemdev/trem"
+readme = "README.md"
+keywords = ["midi", "music", "sequencer", "interchange", "json"]
+categories = ["encoding", "multimedia::audio"]
+
+[features]
+default = ["std"]
+std = []
+midi = ["dep:midly"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+num-rational = "0.4"
+thiserror = "2"
+midly = { version = "0.5", optional = true }
+
+[dev-dependencies]
+serde_json = "1"

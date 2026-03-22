@@ -5,13 +5,15 @@
 ## Scope
 
 **trem** is a mathematical music engine in Rust. It is structured as a
-workspace of three crates:
+workspace of four library/binary crates:
 
 - `crates/trem/` -- Core library (no I/O). Rational arithmetic, pitch/scale
   systems, temporal trees, audio processing graphs, DSP processors, Euclidean
   rhythms, processor registry, and offline rendering.
 - `crates/trem-cpal/` -- Real-time audio backend using cpal + rtrb.
 - `crates/trem-tui/` -- Terminal UI using ratatui + crossterm.
+- `crates/trem-rung/` -- **Rung** clip interchange (JSON + optional MIDI import). See
+  `crates/trem-rung/README.md` and `prop/piano-roll-editor-model.md`.
 
 The binary (`src/main.rs`) wires them together into a TUI DAW. The default patch
 and pattern live under **`src/demo/`** (`levels.rs` = mix constants, `graph.rs` =
@@ -22,6 +24,7 @@ routing, `pattern.rs` = starter grid).
 ```bash
 cargo check --workspace          # type-check everything
 cargo test --workspace           # run all unit + integration tests (mirrors GitHub Actions CI)
+cargo test -p trem-rung --features midi  # Rung MIDI import tests (also run in CI)
 cargo test --workspace --doc     # run doc-test examples
 cargo bench -p trem -- --test    # compile-check benchmarks
 cargo doc --workspace --no-deps  # build documentation
@@ -90,6 +93,7 @@ of what was delivered. This directory is the project's decision log.
 - `crates/trem-tui/src/view/` -- Widget implementations for each TUI pane.
 - `docs/tui-testing.md` -- TUI testing: `tests/keyboard_flows.rs`, `tests/widget_labels.rs`,
   `cargo test -p trem-tui`, optional `expect scripts/tui-smoke.expect` on a real terminal.
+- `crates/trem-rung/` -- Rung interchange format (`RungFile`, `Clip`, MIDI import behind `--features midi`).
 - `src/main.rs` -- Demo project: graph construction, pattern setup, TUI launch.
 
 ## Validation

@@ -29,6 +29,9 @@ jobs:
       - name: cargo test --workspace
         run: cargo test --workspace
 
+      - name: cargo test -p trem-rung --features midi
+        run: cargo test -p trem-rung --features midi
+
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
