@@ -1,5 +1,11 @@
 /target
 
+# Local experiments: large MIDI/sample trees, generated audio (populate via scripts/ if needed)
+/assets/
+
+# Scratch Rung clips at repo root
+/*.rung.json
+
 # Cursor internal state (plans, settings) — don't track
 .cursor/*
 # But do track our rules
