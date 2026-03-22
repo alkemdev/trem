@@ -54,6 +54,8 @@ cargo fmt --all -- --check
 
   Also install **`pkg-config`** if the linker complains about missing `alsa`.
 
+  **CI:** GitHub Actions installs `libasound2-dev` and `pkg-config` on Ubuntu before `cargo test` (see `.github/workflows/ci.yml`).
+
 - **PipeWire / Pulse:** Often an ALSA compatibility layer is enough; if you have no device, check `pactl list short sinks` / system sound settings.
 
 ### Windows

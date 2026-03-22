@@ -14,6 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # cpal → alsa-sys needs alsa.pc (same as local Linux dev; see docs/install.md).
+      - name: Install system dependencies (ALSA, pkg-config)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
