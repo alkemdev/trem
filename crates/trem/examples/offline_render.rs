@@ -32,14 +32,25 @@ fn main() {
     let sample_rate = 44100.0;
 
     let audio = trem::render::render_pattern(
-        &tree, beats, bpm, sample_rate, &scale, 440.0, &mut graph, gain,
+        &tree,
+        beats,
+        bpm,
+        sample_rate,
+        &scale,
+        440.0,
+        &mut graph,
+        gain,
     );
 
     let peak_l: f32 = audio[0].iter().map(|s| s.abs()).fold(0.0f32, f32::max);
     let peak_r: f32 = audio[1].iter().map(|s| s.abs()).fold(0.0f32, f32::max);
     let duration_s = audio[0].len() as f64 / sample_rate;
 
-    println!("Rendered {:.2}s of audio ({} samples per channel)", duration_s, audio[0].len());
+    println!(
+        "Rendered {:.2}s of audio ({} samples per channel)",
+        duration_s,
+        audio[0].len()
+    );
     println!("Peak L: {:.4}  Peak R: {:.4}", peak_l, peak_r);
     println!("Channels: {}", audio.len());
 }

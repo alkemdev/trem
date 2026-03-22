@@ -11,7 +11,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Padding, Widget};
 use std::collections::{HashMap, HashSet};
-use trem::graph::{GroupHint, ParamDescriptor, ParamGroup, ParamUnit};
+use trem::graph::{Edge, GroupHint, ParamDescriptor, ParamGroup, ParamUnit};
 
 const NAME_W: u16 = 12;
 const GAP_W: u16 = 4;
@@ -51,7 +51,7 @@ struct GraphLayout {
     unique_edges: Vec<(usize, usize)>,
 }
 
-fn compute_layout(nodes: &[(u32, String)], edges: &[(u32, u16, u32, u16)]) -> GraphLayout {
+fn compute_layout(nodes: &[(u32, String)], edges: &[Edge]) -> GraphLayout {
     let n = nodes.len();
     if n == 0 {
         return GraphLayout {
@@ -68,8 +68,8 @@ fn compute_layout(nodes: &[(u32, String)], edges: &[(u32, u16, u32, u16)]) -> Gr
 
     let mut unique_edges = Vec::new();
     let mut seen = HashSet::new();
-    for &(src, _, dst, _) in edges {
-        if let (Some(&si), Some(&di)) = (id_to_idx.get(&src), id_to_idx.get(&dst)) {
+    for e in edges {
+        if let (Some(&si), Some(&di)) = (id_to_idx.get(&e.src_node), id_to_idx.get(&e.dst_node)) {
             if seen.insert((si, di)) {
                 unique_edges.push((si, di));
             }
@@ -147,7 +147,7 @@ fn compute_layout(nodes: &[(u32, String)], edges: &[(u32, u16, u32, u16)]) -> Gr
 /// with connection lines, node labels, and an optional parameter editing pane.
 pub struct GraphViewWidget<'a> {
     pub nodes: &'a [(u32, String)],
-    pub edges: &'a [(u32, u16, u32, u16)],
+    pub edges: &'a [Edge],
     pub selected: usize,
     pub params: Option<&'a [ParamDescriptor]>,
     pub param_values: Option<&'a [f64]>,
@@ -504,18 +504,7 @@ impl<'a> Widget for GraphViewWidget<'a> {
             _ => false,
         });
 
-        let scroll = if let Some(sel_row) = selected_row {
-            if total_rows <= viewport_h {
-                0
-            } else {
-                let margin = 2usize;
-                let top = sel_row.saturating_sub(margin);
-                let bot_min = (sel_row + 1 + margin).saturating_sub(viewport_h);
-                top.clamp(bot_min, total_rows.saturating_sub(viewport_h))
-            }
-        } else {
-            0
-        };
+        let scroll = detail_panel_scroll(total_rows, viewport_h, selected_row, 2);
 
         // --- Render visible rows ---
         let scroll_above = scroll > 0;
@@ -780,11 +769,34 @@ fn format_param_value(value: f64, desc: &ParamDescriptor) -> String {
     }
 }
 
+/// Scroll offset for a detail list so `selected_row` stays visible when possible,
+/// biased ~`margin` rows from the top. Pure and safe when `min > max` for `clamp`.
+pub fn detail_panel_scroll(
+    total_rows: usize,
+    viewport_h: usize,
+    selected_row: Option<usize>,
+    margin: usize,
+) -> usize {
+    let Some(sel_row) = selected_row else {
+        return 0;
+    };
+    if total_rows <= viewport_h {
+        return 0;
+    }
+    let max_scroll = total_rows.saturating_sub(viewport_h);
+    let min_scroll = sel_row.saturating_sub(viewport_h.saturating_sub(1));
+    let mut s = sel_row.saturating_sub(margin);
+    if s < min_scroll {
+        s = min_scroll;
+    }
+    if s > max_scroll {
+        s = max_scroll;
+    }
+    s.min(max_scroll).max(min_scroll.min(max_scroll))
+}
+
 /// Compute graph layer depths and layer groupings for navigation.
-pub fn compute_graph_nav(
-    nodes: &[(u32, String)],
-    edges: &[(u32, u16, u32, u16)],
-) -> (Vec<usize>, Vec<Vec<usize>>) {
+pub fn compute_graph_nav(nodes: &[(u32, String)], edges: &[Edge]) -> (Vec<usize>, Vec<Vec<usize>>) {
     let n = nodes.len();
     if n == 0 {
         return (vec![], vec![]);
@@ -798,8 +810,8 @@ pub fn compute_graph_nav(
 
     let mut seen = HashSet::new();
     let mut unique_edges = Vec::new();
-    for &(src, _, dst, _) in edges {
-        if let (Some(&si), Some(&di)) = (id_to_idx.get(&src), id_to_idx.get(&dst)) {
+    for e in edges {
+        if let (Some(&si), Some(&di)) = (id_to_idx.get(&e.src_node), id_to_idx.get(&e.dst_node)) {
             if seen.insert((si, di)) {
                 unique_edges.push((si, di));
             }
@@ -826,4 +838,31 @@ pub fn compute_graph_nav(
     }
 
     (depths, layers)
+}
+
+#[cfg(test)]
+mod detail_scroll_tests {
+    use super::detail_panel_scroll;
+
+    #[test]
+    fn no_selection_no_scroll() {
+        assert_eq!(detail_panel_scroll(10, 3, None, 2), 0);
+    }
+
+    #[test]
+    fn fits_viewport_scroll_zero() {
+        assert_eq!(detail_panel_scroll(3, 10, Some(2), 2), 0);
+    }
+
+    #[test]
+    fn never_panics_when_viewport_smaller_than_content() {
+        // Regression: bad clamp(min,max) when min > max
+        for total in 4..20 {
+            for vp in 2..total {
+                for sel in 0..total {
+                    let _ = detail_panel_scroll(total, vp, Some(sel), 2);
+                }
+            }
+        }
+    }
 }

@@ -2,28 +2,42 @@
 //!
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
-use crate::input::{self, Action, BottomPane, Mode, View};
+use crate::input::{self, Action, BottomPane, Editor, InputContext, Mode};
 use crate::project::ProjectData;
 use crate::view::graph::GraphViewWidget;
+use crate::view::help::HelpOverlay;
 use crate::view::info::InfoView;
 use crate::view::pattern::PatternView;
+use crate::view::perf::HostStatsSnapshot;
 use crate::view::scope::ScopeView;
-use crate::view::spectrum::SpectrumView;
+use crate::view::spectrum::{SpectrumAnalyzerState, SpectrumView};
 use crate::view::transport::TransportView;
 
 use trem::event::NoteEvent;
-use trem::graph::ParamDescriptor;
+use trem::graph::{Edge, GraphSnapshot, ParamDescriptor};
 use trem::math::Rational;
 use trem::pitch::Pitch;
-use trem_cpal::{Bridge, Command, Notification};
+use trem_cpal::{Bridge, Command, Notification, ScopeFocus};
 
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout};
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use sysinfo::{Pid, ProcessesToUpdate, System};
+
 const GATE_PRESETS: [(i64, u64); 4] = [(1, 4), (1, 2), (3, 4), (7, 8)];
+
+/// Minimum width for the pattern/graph pane; sidebar shrinks first.
+const MAIN_EDITOR_MIN_WIDTH: u16 = 14;
+
+/// Sidebar width (cursor/project/keys + perf stacked) from `outer[1].width`.
+fn info_sidebar_width(middle_width: u16) -> u16 {
+    const MIN_SIDEBAR: u16 = 18;
+    let w = middle_width.max(MAIN_EDITOR_MIN_WIDTH + MIN_SIDEBAR);
+    let target = (u32::from(w) * 36 / 100).clamp(u32::from(MIN_SIDEBAR), 30) as u16;
+    target.min(w.saturating_sub(MAIN_EDITOR_MIN_WIDTH))
+}
 
 fn cycle_gate(current: Rational) -> Rational {
     for (i, &(n, d)) in GATE_PRESETS.iter().enumerate() {
@@ -41,7 +55,9 @@ pub struct App {
     pub cursor_row: u32,
     pub cursor_col: u32,
     pub mode: Mode,
-    pub view: View,
+    pub editor: Editor,
+    /// Full keymap overlay (`?` / Esc).
+    pub help_open: bool,
     pub bpm: f64,
     pub playing: bool,
     pub beat_position: f64,
@@ -50,7 +66,18 @@ pub struct App {
     pub scale_name: String,
     pub octave: i32,
     pub bridge: Bridge,
-    pub scope_buf: Vec<f32>,
+    /// Master output (post–FX), interleaved stereo — waveform / spectrum.
+    pub scope_master: Vec<f32>,
+    /// Instrument submix (pre–master bus), same layout — graph view **IN** preview.
+    pub scope_graph_in: Vec<f32>,
+    /// This-process CPU / RSS refreshed ~2× per second for the info panel.
+    pub host_stats: HostStatsSnapshot,
+    sys: System,
+    host_stats_last_refresh: Instant,
+    /// Peak-decay time constant for spectrum bars (ms); lower = snappier, higher = longer “tail”.
+    pub spectrum_fall_ms: f64,
+    spectrum_analyzer_in: SpectrumAnalyzerState,
+    spectrum_analyzer_out: SpectrumAnalyzerState,
     pub peak_l: f32,
     pub peak_r: f32,
     pub should_quit: bool,
@@ -58,7 +85,7 @@ pub struct App {
     pub voice_ids: Vec<u32>,
     pub graph_nodes: Vec<(u32, String)>,
     pub graph_node_descriptions: Vec<String>,
-    pub graph_edges: Vec<(u32, u16, u32, u16)>,
+    pub graph_edges: Vec<Edge>,
     pub graph_cursor: usize,
     pub graph_depths: Vec<usize>,
     pub graph_layers: Vec<Vec<usize>>,
@@ -81,13 +108,16 @@ pub struct App {
     pub graph_has_children: Vec<bool>,
     /// Breadcrumb labels for the navigation path.
     pub graph_breadcrumb: Vec<String>,
+    /// Pregenerated inner-graph snapshots from the host (`Graph::nested_ui_snapshots`), keyed by
+    /// the same path the UI uses after [`Self::enter_nested_graph`] (e.g. `[lead_id]`).
+    nested_graph_snapshots: HashMap<Vec<u32>, GraphSnapshot>,
 }
 
 /// Saved state when diving into a nested graph node.
 #[derive(Clone, Debug)]
 pub struct GraphFrame {
     pub nodes: Vec<(u32, String)>,
-    pub edges: Vec<(u32, u16, u32, u16)>,
+    pub edges: Vec<Edge>,
     pub cursor: usize,
     pub params: Vec<Vec<ParamDescriptor>>,
     pub param_values: Vec<Vec<f64>>,
@@ -95,6 +125,7 @@ pub struct GraphFrame {
     pub depths: Vec<usize>,
     pub layers: Vec<Vec<usize>>,
     pub has_children: Vec<bool>,
+    pub node_descriptions: Vec<String>,
 }
 
 impl App {
@@ -112,7 +143,8 @@ impl App {
             cursor_row: 0,
             cursor_col: 0,
             mode: Mode::Normal,
-            view: View::Pattern,
+            editor: Editor::Pattern,
+            help_open: false,
             bpm: 120.0,
             playing: false,
             beat_position: 0.0,
@@ -121,7 +153,16 @@ impl App {
             scale_name,
             octave: 0,
             bridge,
-            scope_buf: Vec::new(),
+            scope_master: Vec::new(),
+            scope_graph_in: Vec::new(),
+            host_stats: HostStatsSnapshot::default(),
+            sys: System::new(),
+            host_stats_last_refresh: Instant::now()
+                .checked_sub(Duration::from_secs(1))
+                .unwrap_or_else(Instant::now),
+            spectrum_fall_ms: 18.0,
+            spectrum_analyzer_in: SpectrumAnalyzerState::new(18.0),
+            spectrum_analyzer_out: SpectrumAnalyzerState::new(18.0),
             peak_l: 0.0,
             peak_r: 0.0,
             should_quit: false,
@@ -146,11 +187,12 @@ impl App {
                 .unwrap_or_default()
                 .as_nanos() as u64,
             preview_note_off: None,
-            bottom_pane: BottomPane::Waveform,
+            bottom_pane: BottomPane::Spectrum,
             graph_path: Vec::new(),
             graph_stack: Vec::new(),
             graph_has_children: Vec::new(),
             graph_breadcrumb: Vec::new(),
+            nested_graph_snapshots: HashMap::new(),
         }
     }
 
@@ -158,7 +200,7 @@ impl App {
     pub fn with_graph_info(
         mut self,
         nodes: Vec<(u32, String)>,
-        edges: Vec<(u32, u16, u32, u16)>,
+        edges: Vec<Edge>,
         params: Vec<(Vec<ParamDescriptor>, Vec<f64>, Vec<trem::graph::ParamGroup>)>,
     ) -> Self {
         let (depths, layers) = crate::view::graph::compute_graph_nav(&nodes, &edges);
@@ -183,12 +225,104 @@ impl App {
         self.graph_has_children = has_children;
     }
 
+    /// Supplies snapshots for nested graph levels so **Graph › Enter** shows nodes and parameters.
+    pub fn with_nested_graph_snapshots(
+        mut self,
+        snapshots: HashMap<Vec<u32>, GraphSnapshot>,
+    ) -> Self {
+        self.nested_graph_snapshots = snapshots;
+        self
+    }
+
+    fn refresh_host_stats(&mut self) {
+        if self.host_stats_last_refresh.elapsed() < Duration::from_millis(520) {
+            return;
+        }
+        self.host_stats_last_refresh = Instant::now();
+        self.sys.refresh_cpu_usage();
+        let pid = Pid::from_u32(std::process::id());
+        self.sys
+            .refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
+        if let Some(p) = self.sys.process(pid) {
+            // Smoothed: raw `cpu_usage` is per refresh window and can spike (UI redraw + audio).
+            let raw = p.cpu_usage();
+            let prev = self.host_stats.process_cpu_pct;
+            const SMOOTH: f32 = 0.22;
+            self.host_stats.process_cpu_pct = if prev <= f32::EPSILON {
+                raw
+            } else {
+                prev * (1.0 - SMOOTH) + raw * SMOOTH
+            };
+            self.host_stats.process_rss_mb = p.memory() / 1024 / 1024;
+        } else {
+            self.host_stats.process_cpu_pct = 0.0;
+            self.host_stats.process_rss_mb = 0;
+        }
+    }
+
+    /// Rebuilds graph editor state from a host [`GraphSnapshot`] (nodes, edges, params, layout).
+    fn load_graph_from_snapshot(&mut self, snap: &GraphSnapshot) {
+        let nodes: Vec<(u32, String)> = snap.nodes.iter().map(|n| (n.id, n.name.clone())).collect();
+        let edges = snap.edges.clone();
+        let (depths, layers) = crate::view::graph::compute_graph_nav(&nodes, &edges);
+        self.graph_nodes = nodes;
+        self.graph_edges = edges;
+        self.graph_depths = depths;
+        self.graph_layers = layers;
+        self.graph_params = snap.nodes.iter().map(|n| n.params.clone()).collect();
+        self.graph_param_values = snap.nodes.iter().map(|n| n.param_values.clone()).collect();
+        self.graph_param_groups = snap.nodes.iter().map(|n| n.param_groups.clone()).collect();
+        self.graph_has_children = snap.nodes.iter().map(|n| n.has_children).collect();
+        self.graph_node_descriptions = vec![String::new(); self.graph_nodes.len()];
+        self.graph_cursor = 0;
+        self.param_cursor = 0;
+    }
+
+    /// Tells the audio thread which signal to show in the bottom **IN | OUT** previews.
+    pub fn sync_scope_focus(&mut self) {
+        match self.editor {
+            Editor::Pattern => {
+                self.bridge
+                    .send(Command::SetScopeFocus(ScopeFocus::PatchBuses));
+            }
+            Editor::Graph => {
+                if let Some(&(nid, _)) = self.graph_nodes.get(self.graph_cursor) {
+                    self.bridge
+                        .send(Command::SetScopeFocus(ScopeFocus::GraphNode {
+                            graph_path: self.graph_path.clone(),
+                            node: nid,
+                        }));
+                } else {
+                    self.bridge
+                        .send(Command::SetScopeFocus(ScopeFocus::PatchBuses));
+                }
+            }
+        }
+    }
+
     /// Applies one [`Action`] from input: updates state and sends [`Command`]s to the audio bridge as needed.
     pub fn handle_action(&mut self, action: Action) {
+        let sync_scope = matches!(
+            &action,
+            Action::CycleEditor
+                | Action::EnterGraph
+                | Action::ExitGraph
+                | Action::MoveUp
+                | Action::MoveDown
+                | Action::MoveLeft
+                | Action::MoveRight
+                | Action::LoadProject
+        );
         match action {
             Action::Quit => self.should_quit = true,
-            Action::CycleView => {
-                self.view = self.view.next();
+            Action::ToggleHelp => {
+                self.help_open = !self.help_open;
+                if self.help_open {
+                    self.mode = Mode::Normal;
+                }
+            }
+            Action::CycleEditor => {
+                self.editor = self.editor.next();
                 self.mode = Mode::Normal;
             }
             Action::ToggleEdit => {
@@ -210,56 +344,56 @@ impl App {
                     self.current_play_row = None;
                 }
             }
-            Action::MoveUp => match (&self.view, &self.mode) {
-                (View::Pattern, _) => {
+            Action::MoveUp => match (&self.editor, &self.mode) {
+                (Editor::Pattern, _) => {
                     self.cursor_col = self.cursor_col.saturating_sub(1);
                 }
-                (View::Graph, Mode::Normal) => self.graph_move_up(),
-                (View::Graph, Mode::Edit) => {
+                (Editor::Graph, Mode::Normal) => self.graph_move_up(),
+                (Editor::Graph, Mode::Edit) => {
                     self.param_cursor = self.param_cursor.saturating_sub(1);
                 }
             },
-            Action::MoveDown => match (&self.view, &self.mode) {
-                (View::Pattern, _) => {
+            Action::MoveDown => match (&self.editor, &self.mode) {
+                (Editor::Pattern, _) => {
                     if self.cursor_col < self.grid.columns.saturating_sub(1) {
                         self.cursor_col += 1;
                     }
                 }
-                (View::Graph, Mode::Normal) => self.graph_move_down(),
-                (View::Graph, Mode::Edit) => {
+                (Editor::Graph, Mode::Normal) => self.graph_move_down(),
+                (Editor::Graph, Mode::Edit) => {
                     let max = self.current_node_param_count().saturating_sub(1);
                     if self.param_cursor < max {
                         self.param_cursor += 1;
                     }
                 }
             },
-            Action::MoveLeft => match (&self.view, &self.mode) {
-                (View::Pattern, _) => {
+            Action::MoveLeft => match (&self.editor, &self.mode) {
+                (Editor::Pattern, _) => {
                     self.cursor_row = self.cursor_row.saturating_sub(1);
                 }
-                (View::Graph, Mode::Normal) => self.graph_move_left(),
-                (View::Graph, Mode::Edit) => self.adjust_param_coarse(-1),
+                (Editor::Graph, Mode::Normal) => self.graph_move_left(),
+                (Editor::Graph, Mode::Edit) => self.adjust_param_coarse(-1),
             },
-            Action::MoveRight => match (&self.view, &self.mode) {
-                (View::Pattern, _) => {
+            Action::MoveRight => match (&self.editor, &self.mode) {
+                (Editor::Pattern, _) => {
                     if self.cursor_row < self.grid.rows.saturating_sub(1) {
                         self.cursor_row += 1;
                     }
                 }
-                (View::Graph, Mode::Normal) => self.graph_move_right(),
-                (View::Graph, Mode::Edit) => self.adjust_param_coarse(1),
+                (Editor::Graph, Mode::Normal) => self.graph_move_right(),
+                (Editor::Graph, Mode::Edit) => self.adjust_param_coarse(1),
             },
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
             Action::SaveProject => {
-                let path = PathBuf::from("project.trem.json");
+                let path = crate::project::default_project_path();
                 let data = ProjectData::from_app(self);
                 if let Err(e) = crate::project::save(&path, &data) {
                     eprintln!("save error: {e}");
                 }
             }
             Action::LoadProject => {
-                let path = PathBuf::from("project.trem.json");
+                let path = crate::project::default_project_path();
                 match crate::project::load(&path) {
                     Ok(data) => {
                         self.push_undo();
@@ -284,7 +418,7 @@ impl App {
                 }
             }
             Action::GateCycle => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     if let Some(note) = self.grid.get(self.cursor_row, self.cursor_col).cloned() {
                         self.push_undo();
                         let new_gate = cycle_gate(note.gate);
@@ -299,7 +433,7 @@ impl App {
                 }
             }
             Action::NoteInput(degree) => {
-                if self.view != View::Pattern {
+                if self.editor != Editor::Pattern {
                     return;
                 }
                 self.push_undo();
@@ -336,7 +470,7 @@ impl App {
                 }
             }
             Action::DeleteNote => {
-                if self.view != View::Pattern {
+                if self.editor != Editor::Pattern {
                     return;
                 }
                 self.push_undo();
@@ -345,7 +479,7 @@ impl App {
             Action::OctaveUp => self.octave = (self.octave + 1).min(9),
             Action::OctaveDown => self.octave = (self.octave - 1).max(-4),
             Action::BpmUp => {
-                if self.view == View::Graph && self.mode == Mode::Edit {
+                if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(1);
                 } else {
                     self.bpm = (self.bpm + 1.0).min(300.0);
@@ -353,7 +487,7 @@ impl App {
                 }
             }
             Action::BpmDown => {
-                if self.view == View::Graph && self.mode == Mode::Edit {
+                if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(-1);
                 } else {
                     self.bpm = (self.bpm - 1.0).max(20.0);
@@ -361,17 +495,17 @@ impl App {
                 }
             }
             Action::ParamFineUp => {
-                if self.view == View::Graph && self.mode == Mode::Edit {
+                if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(1);
                 }
             }
             Action::ParamFineDown => {
-                if self.view == View::Graph && self.mode == Mode::Edit {
+                if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(-1);
                 }
             }
             Action::EuclideanFill => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.euclidean_k = (self.euclidean_k + 1) % (self.grid.rows + 1);
                     let pattern = trem::euclidean::euclidean(self.euclidean_k, self.grid.rows);
@@ -384,7 +518,7 @@ impl App {
                 }
             }
             Action::RandomizeVoice => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.randomize_current_voice();
                     if self.playing {
@@ -393,7 +527,7 @@ impl App {
                 }
             }
             Action::ReverseVoice => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.reverse_voice(self.cursor_col);
                     if self.playing {
@@ -402,7 +536,7 @@ impl App {
                 }
             }
             Action::ShiftVoiceLeft => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.shift_voice(self.cursor_col, -1);
                     if self.playing {
@@ -411,7 +545,7 @@ impl App {
                 }
             }
             Action::ShiftVoiceRight => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.shift_voice(self.cursor_col, 1);
                     if self.playing {
@@ -420,7 +554,7 @@ impl App {
                 }
             }
             Action::VelocityUp => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.adjust_note_velocity(Rational::new(1, 8));
                     if self.playing {
@@ -429,7 +563,7 @@ impl App {
                 }
             }
             Action::VelocityDown => {
-                if self.view == View::Pattern {
+                if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.adjust_note_velocity(Rational::new(-1, 8));
                     if self.playing {
@@ -441,7 +575,7 @@ impl App {
                 self.bottom_pane = self.bottom_pane.next();
             }
             Action::EnterGraph => {
-                if self.view != View::Graph || self.mode != Mode::Normal {
+                if self.editor != Editor::Graph || self.mode != Mode::Normal {
                     return;
                 }
                 if self.graph_cursor >= self.graph_has_children.len() {
@@ -453,11 +587,14 @@ impl App {
                 self.enter_nested_graph();
             }
             Action::ExitGraph => {
-                if self.view != View::Graph {
+                if self.editor != Editor::Graph {
                     return;
                 }
                 self.exit_nested_graph();
             }
+        }
+        if sync_scope {
+            self.sync_scope_focus();
         }
     }
 
@@ -468,7 +605,7 @@ impl App {
     }
 
     fn current_node_description(&self) -> &str {
-        if self.view != crate::input::View::Graph {
+        if self.editor != Editor::Graph {
             return "";
         }
         self.graph_node_descriptions
@@ -478,7 +615,7 @@ impl App {
     }
 
     fn current_param_help(&self) -> &str {
-        if self.view != crate::input::View::Graph || self.mode != crate::input::Mode::Edit {
+        if self.editor != Editor::Graph || self.mode != crate::input::Mode::Edit {
             return "";
         }
         self.graph_params
@@ -621,9 +758,13 @@ impl App {
     fn graph_move_right(&mut self) {
         let current_id = self.graph_nodes[self.graph_cursor].0;
         let mut seen = HashSet::new();
-        for &(src, _, dst, _) in &self.graph_edges {
-            if src == current_id && seen.insert(dst) {
-                if let Some(idx) = self.graph_nodes.iter().position(|(id, _)| *id == dst) {
+        for e in &self.graph_edges {
+            if e.src_node == current_id && seen.insert(e.dst_node) {
+                if let Some(idx) = self
+                    .graph_nodes
+                    .iter()
+                    .position(|(id, _)| *id == e.dst_node)
+                {
                     self.graph_cursor = idx;
                     return;
                 }
@@ -634,9 +775,13 @@ impl App {
     fn graph_move_left(&mut self) {
         let current_id = self.graph_nodes[self.graph_cursor].0;
         let mut seen = HashSet::new();
-        for &(src, _, dst, _) in &self.graph_edges {
-            if dst == current_id && seen.insert(src) {
-                if let Some(idx) = self.graph_nodes.iter().position(|(id, _)| *id == src) {
+        for e in &self.graph_edges {
+            if e.dst_node == current_id && seen.insert(e.src_node) {
+                if let Some(idx) = self
+                    .graph_nodes
+                    .iter()
+                    .position(|(id, _)| *id == e.src_node)
+                {
                     self.graph_cursor = idx;
                     return;
                 }
@@ -657,27 +802,27 @@ impl App {
             depths: self.graph_depths.clone(),
             layers: self.graph_layers.clone(),
             has_children: self.graph_has_children.clone(),
+            node_descriptions: self.graph_node_descriptions.clone(),
         });
 
+        let entered_name = self.graph_nodes[self.graph_cursor].1.clone();
         self.graph_path.push(node_id);
-        self.graph_breadcrumb
-            .push(self.graph_nodes[self.graph_cursor].1.clone());
+        self.graph_breadcrumb.push(entered_name);
 
-        // We use snapshot_at_path conceptually -- but the TUI doesn't hold the Graph.
-        // The snapshot data would need to come from the audio thread.
-        // For now, we clear the graph view to show the node's name.
-        // A full implementation would require a snapshot request/response protocol.
-        // Instead, we rely on the info already in graph_params for the selected node.
-        // This is a simplified version.
-        self.graph_nodes = vec![];
-        self.graph_edges = vec![];
-        self.graph_depths = vec![];
-        self.graph_layers = vec![];
-        self.graph_params = vec![];
-        self.graph_param_values = vec![];
-        self.graph_param_groups = vec![];
-        self.graph_has_children = vec![];
-        self.graph_cursor = 0;
+        if let Some(snap) = self.nested_graph_snapshots.get(&self.graph_path).cloned() {
+            self.load_graph_from_snapshot(&snap);
+        } else {
+            // No host snapshot for this path — keep empty placeholder until a bridge protocol exists.
+            self.graph_nodes = vec![];
+            self.graph_edges = vec![];
+            self.graph_depths = vec![];
+            self.graph_layers = vec![];
+            self.graph_params = vec![];
+            self.graph_param_values = vec![];
+            self.graph_param_groups = vec![];
+            self.graph_has_children = vec![];
+            self.graph_cursor = 0;
+        }
     }
 
     fn exit_nested_graph(&mut self) {
@@ -691,6 +836,7 @@ impl App {
             self.graph_depths = frame.depths;
             self.graph_layers = frame.layers;
             self.graph_has_children = frame.has_children;
+            self.graph_node_descriptions = frame.node_descriptions;
             self.graph_path.pop();
             self.graph_breadcrumb.pop();
         }
@@ -716,8 +862,9 @@ impl App {
                         self.current_play_row = Some(row.min(self.grid.rows.saturating_sub(1)));
                     }
                 }
-                Notification::ScopeData(data) => {
-                    self.scope_buf = data;
+                Notification::ScopeData(snap) => {
+                    self.scope_master = snap.master;
+                    self.scope_graph_in = snap.graph_in;
                 }
                 Notification::Meter { peak_l, peak_r } => {
                     self.peak_l = peak_l;
@@ -775,13 +922,19 @@ impl App {
     }
 
     /// Lays out transport, sidebar, main view (pattern or graph), and scope into `frame`.
-    pub fn draw(&self, frame: &mut ratatui::Frame) {
+    pub fn draw(&mut self, frame: &mut ratatui::Frame) {
+        self.refresh_host_stats();
+
+        let bottom_h = match self.editor {
+            Editor::Graph => 6u16,
+            Editor::Pattern => 5u16,
+        };
         let outer = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
                 Constraint::Min(4),
-                Constraint::Length(5),
+                Constraint::Length(bottom_h),
             ])
             .split(frame.area());
 
@@ -791,7 +944,7 @@ impl App {
                 beat_position: self.beat_position,
                 playing: self.playing,
                 mode: &self.mode,
-                view: &self.view,
+                editor: &self.editor,
                 scale_name: &self.scale_name,
                 octave: self.octave,
                 swing: self.swing,
@@ -800,17 +953,35 @@ impl App {
             outer[0],
         );
 
+        let sidebar_w = info_sidebar_width(outer[1].width);
         let middle = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(26), Constraint::Min(20)])
+            .constraints([
+                Constraint::Length(sidebar_w),
+                Constraint::Min(MAIN_EDITOR_MIN_WIDTH),
+            ])
             .split(outer[1]);
 
         let note_at_cursor = self.grid.get(self.cursor_row, self.cursor_col);
+        let graph_node_name = match self.editor {
+            Editor::Graph => self
+                .graph_nodes
+                .get(self.graph_cursor)
+                .map(|(_, n)| n.as_str()),
+            Editor::Pattern => None,
+        };
+        let graph_can_enter_nested = matches!(self.editor, Editor::Graph)
+            && self
+                .graph_has_children
+                .get(self.graph_cursor)
+                .copied()
+                .unwrap_or(false);
+        let graph_is_nested = !self.graph_path.is_empty();
 
         frame.render_widget(
             InfoView {
                 mode: &self.mode,
-                view: &self.view,
+                editor: &self.editor,
                 octave: self.octave,
                 cursor_step: self.cursor_row,
                 cursor_voice: self.cursor_col,
@@ -819,20 +990,26 @@ impl App {
                 note_at_cursor,
                 scale: &self.scale,
                 scale_name: &self.scale_name,
-                peak_l: self.peak_l,
-                peak_r: self.peak_r,
                 instrument_names: &self.instrument_names,
                 swing: self.swing,
                 euclidean_k: self.euclidean_k,
                 undo_depth: self.undo_stack.len(),
                 node_description: self.current_node_description(),
                 param_help: self.current_param_help(),
+                graph_node_name,
+                graph_can_enter_nested,
+                graph_is_nested,
+                host_stats: &self.host_stats,
+                peak_l: self.peak_l,
+                peak_r: self.peak_r,
+                playing: self.playing,
+                bpm: self.bpm,
             },
             middle[0],
         );
 
-        match self.view {
-            View::Pattern => {
+        match self.editor {
+            Editor::Pattern => {
                 frame.render_widget(
                     PatternView {
                         grid: &self.grid,
@@ -846,7 +1023,7 @@ impl App {
                     middle[1],
                 );
             }
-            View::Graph => {
+            Editor::Graph => {
                 let params = self.graph_params.get(self.graph_cursor);
                 let values = self.graph_param_values.get(self.graph_cursor);
                 let groups = self.graph_param_groups.get(self.graph_cursor);
@@ -871,23 +1048,79 @@ impl App {
             }
         }
 
-        match self.bottom_pane {
-            BottomPane::Waveform => {
+        let now = Instant::now();
+        self.spectrum_analyzer_in.fall_ms = self.spectrum_fall_ms;
+        self.spectrum_analyzer_out.fall_ms = self.spectrum_fall_ms;
+        let (spec_in, nr_in) = self.spectrum_analyzer_in.analyze(&self.scope_graph_in, now);
+        let (spec_out, nr_out) = self.spectrum_analyzer_out.analyze(&self.scope_master, now);
+
+        match (self.editor, self.bottom_pane) {
+            (Editor::Graph, BottomPane::Waveform) => {
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(outer[2]);
                 frame.render_widget(
                     ScopeView {
-                        samples: &self.scope_buf,
+                        samples: &self.scope_graph_in,
                     },
-                    outer[2],
+                    chunks[0],
+                );
+                frame.render_widget(
+                    ScopeView {
+                        samples: &self.scope_master,
+                    },
+                    chunks[1],
                 );
             }
-            BottomPane::Spectrum => {
+            (Editor::Graph, BottomPane::Spectrum) => {
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(outer[2]);
+                let fall = self.spectrum_fall_ms;
                 frame.render_widget(
                     SpectrumView {
-                        samples: &self.scope_buf,
+                        magnitudes: spec_in,
+                        norm_ref: nr_in,
+                        title: "IN",
+                        decay_ms_label: fall,
+                    },
+                    chunks[0],
+                );
+                frame.render_widget(
+                    SpectrumView {
+                        magnitudes: spec_out,
+                        norm_ref: nr_out,
+                        title: "OUT",
+                        decay_ms_label: fall,
+                    },
+                    chunks[1],
+                );
+            }
+            (Editor::Pattern, BottomPane::Waveform) => {
+                frame.render_widget(
+                    ScopeView {
+                        samples: &self.scope_master,
                     },
                     outer[2],
                 );
             }
+            (Editor::Pattern, BottomPane::Spectrum) => {
+                frame.render_widget(
+                    SpectrumView {
+                        magnitudes: spec_out,
+                        norm_ref: nr_out,
+                        title: "OUT",
+                        decay_ms_label: self.spectrum_fall_ms,
+                    },
+                    outer[2],
+                );
+            }
+        }
+
+        if self.help_open {
+            frame.render_widget(HelpOverlay, frame.area());
         }
     }
 
@@ -897,13 +1130,20 @@ impl App {
         B: ratatui::backend::Backend,
         B::Error: std::error::Error + Send + Sync + 'static,
     {
+        self.sync_scope_focus();
         loop {
             terminal.draw(|frame| self.draw(frame))?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind != KeyEventKind::Release {
-                        if let Some(action) = input::handle_key(key, &self.mode) {
+                        let ctx = InputContext {
+                            editor: self.editor,
+                            mode: &self.mode,
+                            graph_is_nested: !self.graph_path.is_empty(),
+                            help_open: self.help_open,
+                        };
+                        if let Some(action) = input::handle_key(key, &ctx) {
                             self.handle_action(action);
                         }
                     }
@@ -917,5 +1157,22 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod sidebar_width_tests {
+    use super::{info_sidebar_width, MAIN_EDITOR_MIN_WIDTH};
+
+    #[test]
+    fn narrow_middle_reserves_main_column() {
+        let sw = info_sidebar_width(52);
+        assert!(sw + MAIN_EDITOR_MIN_WIDTH <= 52, "sidebar={sw}");
+    }
+
+    #[test]
+    fn sidebar_caps_on_wide_terminals() {
+        let sw = info_sidebar_width(200);
+        assert!(sw <= 30, "sidebar={sw}");
     }
 }

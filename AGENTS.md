@@ -1,5 +1,7 @@
 # AGENTS.md
 
+**New here?** End-user setup: [docs/install.md](docs/install.md) · this file is for **contributors** and **automation**.
+
 ## Scope
 
 **trem** is a mathematical music engine in Rust. It is structured as a
@@ -11,13 +13,15 @@ workspace of three crates:
 - `crates/trem-cpal/` -- Real-time audio backend using cpal + rtrb.
 - `crates/trem-tui/` -- Terminal UI using ratatui + crossterm.
 
-The binary (`src/main.rs`) wires them together into a TUI DAW.
+The binary (`src/main.rs`) wires them together into a TUI DAW. The default patch
+and pattern live under **`src/demo/`** (`levels.rs` = mix constants, `graph.rs` =
+routing, `pattern.rs` = starter grid).
 
 ## Commands
 
 ```bash
 cargo check --workspace          # type-check everything
-cargo test --workspace           # run all unit + integration tests
+cargo test --workspace           # run all unit + integration tests (mirrors GitHub Actions CI)
 cargo test --workspace --doc     # run doc-test examples
 cargo bench -p trem -- --test    # compile-check benchmarks
 cargo doc --workspace --no-deps  # build documentation
@@ -71,6 +75,8 @@ of what was delivered. This directory is the project's decision log.
 
 ## Important Areas
 
+- `src/demo/` -- Default patch for the binary: `levels.rs` (mix), `graph.rs`
+  (routing), `pattern.rs` (grid). See `src/demo/README.md`.
 - `crates/trem/src/graph.rs` -- The core `Graph` and `Processor` trait.
   `Graph` implements `Processor`, enabling recursive nesting.
 - `crates/trem/src/dsp/` -- All built-in processors (oscillators, filters,
@@ -82,6 +88,8 @@ of what was delivered. This directory is the project's decision log.
 - `crates/trem-cpal/src/driver.rs` -- Audio thread loop.
 - `crates/trem-tui/src/app.rs` -- TUI application state and render loop.
 - `crates/trem-tui/src/view/` -- Widget implementations for each TUI pane.
+- `docs/tui-testing.md` -- TUI testing: `tests/keyboard_flows.rs`, `tests/widget_labels.rs`,
+  `cargo test -p trem-tui`, optional `expect scripts/tui-smoke.expect` on a real terminal.
 - `src/main.rs` -- Demo project: graph construction, pattern setup, TUI launch.
 
 ## Validation

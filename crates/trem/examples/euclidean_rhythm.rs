@@ -13,12 +13,12 @@ fn print_pattern(name: &str, hits: u32, steps: u32) {
 fn main() {
     println!("Euclidean rhythms — E(hits, steps)\n");
 
-    print_pattern("tresillo",          3,  8);
+    print_pattern("tresillo", 3, 8);
     print_pattern("four on the floor", 4, 16);
-    print_pattern("cinquillo",         5,  8);
-    print_pattern("bembé",             7, 12);
-    print_pattern("aksak",             5,  9);
-    print_pattern("son clave",         5, 16);
+    print_pattern("cinquillo", 5, 8);
+    print_pattern("bembé", 7, 12);
+    print_pattern("aksak", 5, 9);
+    print_pattern("son clave", 5, 16);
 
     println!("\nRotation example:");
     let base = euclidean::euclidean(3, 8);

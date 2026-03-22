@@ -152,10 +152,16 @@ impl Registry {
         r.register("syn", "Analog Voice", Category::Source, || {
             Box::new(dsp::analog_voice(0, 64))
         });
+        r.register("ldv", "Lead Voice", Category::Source, || {
+            Box::new(dsp::lead_voice(0, 64))
+        });
 
         // Effects
         r.register("dly", "Stereo Delay", Category::Effect, || {
             Box::new(dsp::StereoDelay::new(250.0, 0.4, 0.3))
+        });
+        r.register("dst", "Distortion", Category::Effect, || {
+            Box::new(dsp::Distortion::new())
         });
         r.register("vrb", "Plate Reverb", Category::Effect, || {
             Box::new(dsp::PlateReverb::new(0.5, 0.5, 0.3))
@@ -250,8 +256,9 @@ mod tests {
     fn standard_registry_has_all_tags() {
         let reg = Registry::standard();
         let expected = [
-            "osc", "noi", "kick", "snr", "hat", "syn", "dly", "vrb", "peq", "geq", "lpf", "hpf",
-            "bpf", "env", "wav", "lfo", "lim", "com", "vol", "pan", "gain", "mix", "xfade",
+            "osc", "noi", "kick", "snr", "hat", "syn", "ldv", "dly", "dst", "vrb", "peq", "geq",
+            "lpf", "hpf", "bpf", "env", "wav", "lfo", "lim", "com", "vol", "pan", "gain", "mix",
+            "xfade",
         ];
         for tag in &expected {
             assert!(reg.get(tag).is_some(), "missing tag: {tag}");

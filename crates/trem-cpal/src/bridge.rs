@@ -5,6 +5,20 @@
 
 use trem::event::TimedEvent;
 
+/// Where the UI wants stereo scope / spectrum taps to come from.
+#[derive(Debug, Clone)]
+pub enum ScopeFocus {
+    /// Pattern view: instrument submix vs master output (patch-level).
+    PatchBuses,
+    /// Graph view: summed inputs vs outputs of the highlighted node (any nesting level).
+    GraphNode {
+        /// Same prefix as [`Command::SetParam`] when editing inside nested graphs.
+        graph_path: Vec<u32>,
+        /// Node id within [`graph_path`](ScopeFocus::GraphNode::graph_path)’s graph.
+        node: u32,
+    },
+}
+
 /// Message from the UI/control thread to the realtime audio callback.
 #[derive(Debug)]
 pub enum Command {
@@ -31,6 +45,19 @@ pub enum Command {
         param_id: u32,
         value: f64,
     },
+    /// Scope/spectrum left = “in”, right = “out” (see [`ScopeFocus`]).
+    SetScopeFocus(ScopeFocus),
+}
+
+/// Stereo interleaved audio snippet for scopes / spectrum (L,R pairs).
+#[derive(Debug, Clone)]
+pub struct ScopeSnapshot {
+    /// Right-hand / “out” pane: master output in [`ScopeFocus::PatchBuses`], or the focused
+    /// node’s output in [`ScopeFocus::GraphNode`].
+    pub master: Vec<f32>,
+    /// Left-hand / “in” pane: instrument submix before master FX in patch mode, or the focused
+    /// node’s summed inputs in graph mode.
+    pub graph_in: Vec<f32>,
 }
 
 /// Message from the audio thread back to the UI (scope, meters, transport).
@@ -38,8 +65,8 @@ pub enum Command {
 pub enum Notification {
     /// Approximate playhead position in beats (throttled in the callback).
     Position { beat: f64 },
-    /// Recent stereo samples for the oscilloscope view (interleaved L, R).
-    ScopeData(Vec<f32>),
+    /// Recent stereo samples for waveform / spectrum (see [`ScopeSnapshot`]).
+    ScopeData(ScopeSnapshot),
     /// Peak levels since the last meter notification (per channel).
     Meter { peak_l: f32, peak_r: f32 },
     /// Playback stopped from the audio side (e.g. device error path).

@@ -245,8 +245,8 @@ impl SnareSynth {
     }
 
     fn trigger(&mut self, velocity: f64) {
-        self.body_amp = velocity * 0.7;
-        self.noise_amp = velocity;
+        self.body_amp = velocity * 0.88;
+        self.noise_amp = velocity * 1.05;
         self.body_phase = 0.0;
         self.bq_x1 = 0.0;
         self.bq_x2 = 0.0;
@@ -276,7 +276,7 @@ impl SnareSynth {
             0.0
         };
 
-        (body + noise) as f32
+        ((body + noise) * 1.0) as f32
     }
 }
 

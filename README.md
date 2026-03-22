@@ -6,6 +6,18 @@ A mathematical music engine in Rust.
 systems, recursive temporal trees, and typed audio graphs. The terminal UI is a
 first-class citizen.
 
+## Try it (install & run)
+
+1. **Install [Rust](https://rustup.rs/)** (stable toolchain).
+2. **Clone** this repo and **`cd`** into it.
+3. Run:
+
+```bash
+cargo run
+```
+
+**Platform setup** (Linux ALSA packages, Windows MSVC, macOS, WSL caveats): see **[docs/install.md](docs/install.md)**.
+
 ## Principles
 
 - **Exact where possible.** Time is rational (integer numerator/denominator
@@ -66,9 +78,11 @@ sends `Command`s (play, stop, set parameter), the audio thread sends back
 `Notification`s (beat position, meter levels).
 
 **trem-tui** — Terminal interface. Pattern sequencer with per-step note entry,
-audio graph viewer with inline parameter editing, transport bar, waveform
-scope, spectrum analyzer, and contextual key hints. Built on ratatui +
-crossterm.
+audio graph viewer with inline parameter editing, transport bar, **spectrum-first**
+bottom pane (in **Graph** view: side-by-side **instrument bus** vs **master**
+previews), waveform scope, a **sidebar** (cursor / project / keys / contextual
+hints, with **PROC** stats for **this process** — CPU % and RSS — at the bottom),
+and contextual key hints. Built on ratatui + crossterm.
 
 ## Quick start
 
@@ -76,8 +90,15 @@ crossterm.
 cargo run
 ```
 
-This launches the demo project: a 130 BPM, A-minor loop with lead, bass, kick,
-snare, and hats routed through a nested bus architecture:
+Same as **Try it** above; full prerequisites on **[docs/install.md](docs/install.md)**.
+
+The default graph and pattern live in **`src/demo/`** (`levels.rs` for gains/FX, `graph.rs` for routing, `pattern.rs` for the grid). `src/main.rs` is thin I/O glue.
+
+This launches the demo project: a **~146 BPM** loop (32-step pattern) with a **dense
+pentatonic arp** on the lead (triangle-heavy dual osc, light wavetable, warm filter),
+**short delay only on the lead** for a fluttery echo, bass, a **louder snare** through
+**`dst` distortion** (foldback / crisp transient), and hats —
+routed through a nested bus architecture:
 
 ```
 Lead > ────────┐
@@ -85,13 +106,22 @@ Lead > ────────┐
 Bass > ────────┘                 │
                                   ├── Main Bus > ── [output]
 Kick > ────┐                     │
-Snare > ───┼── Drum Bus > ──────┘
+Snare >(dst)──┼── Drum Bus > ──────┘
 Hat > ─────┘
 ```
 
 Every node marked `>` is a nested graph you can Enter to inspect and edit.
 
-Press **Space** to play/stop. Press **Tab** to switch views.
+Press **Space** to play/stop. Press **Tab** to switch views. The bottom strip defaults
+to the **spectrum**. Bins use **per-bin** peak decay (\(\tau \approx 18\) ms, `App::spectrum_fall_ms`) and **adaptive level**:
+a decaying global peak + silence-aware reference so quiet buffers don’t normalize to full height;
+each column uses the **max** of its FFT bins. In **Graph**
+view the strip splits into **IN** and **OUT** for whichever node is highlighted — summed
+inputs vs that node’s outputs (including inside nested graphs). In **Pattern** view the
+spectrum shows the **master** output (waveform/spectrum use the same scope buffer). Press **\`** to toggle waveform vs spectrum.
+
+The sidebar **PROC** section (bottom of the info column) reports **this process only** (trem CPU % and RSS), not whole-machine totals.
+The transport bar shows beat position with a **φ-weighted** phase glyph for a slightly less grid-locked readout.
 
 ## Keybindings
 
@@ -100,10 +130,13 @@ Press **Space** to play/stop. Press **Tab** to switch views.
 | Key           | Action              |
 |---------------|---------------------|
 | `Space`       | Play / stop         |
-| `Tab`         | Cycle view          |
+| `Tab`         | Cycle **SEQ** ↔ **GRAPH** |
+| `?`           | Full keymap overlay |
 | `+` / `-`     | BPM up / down       |
 | `[` / `]`     | Octave down / up    |
-| `Ctrl-C`      | Quit                |
+| `` ` ``       | Toggle bottom: waveform ↔ spectrum |
+| `Ctrl-S` / `Ctrl-O` | Save / load project (`project.trem.json` in cwd) |
+| `Ctrl-C` / `Ctrl-Q` | Quit          |
 
 ### Pattern view — Navigate mode
 
@@ -135,7 +168,7 @@ Press **Space** to play/stop. Press **Tab** to switch views.
 | `←` `→`       | Follow connections  |
 | `↑` `↓`       | Move within layer   |
 | `Enter`       | Dive into nested graph |
-| `Esc`         | Back up one level   |
+| `Esc`         | Back up one level (nested graph only) |
 | `e`           | Enter edit mode     |
 
 ### Graph view — Edit mode
@@ -163,12 +196,14 @@ All processors implement the `Processor` trait and declare their parameters via
 | `snr`  | `SnareSynth`     | Sine body + bandpass-filtered noise burst      |
 | `hat`  | `HatSynth`       | Highpass-filtered noise with short envelope    |
 | `syn`  | `analog_voice`   | Composite synth graph (2 osc, filter, env, gain) |
+| `ldv`  | `lead_voice`     | Lead stack: saw + tri, wavetable air, modulated LP, ADSR |
 
 ### Effects & EQ
 
 | Tag    | Processor        | Description                                    |
 |--------|------------------|------------------------------------------------|
 | `dly`  | `StereoDelay`    | Stereo delay with feedback and dry/wet mix     |
+| `dst`  | `Distortion`     | Mono waveshaper: tanh / hard / fold / soft / diode + mix |
 | `vrb`  | `PlateReverb`    | Schroeder plate reverb (4 combs + 2 allpasses) |
 | `peq`  | `ParametricEq`   | 3-band stereo parametric EQ                   |
 | `geq`  | `GraphicEq`      | 7-band mono graphic EQ                        |
@@ -302,6 +337,10 @@ let audio = trem::render::render_pattern(
 );
 // audio[0] = left channel, audio[1] = right channel
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 ## License
 

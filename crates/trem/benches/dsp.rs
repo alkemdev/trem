@@ -168,6 +168,13 @@ mod filter {
         let input = tone_input(BLOCK);
         bencher.bench_local(|| run_mono_effect(&mut f, &input, BLOCK));
     }
+
+    #[divan::bench]
+    fn modulated_lowpass(bencher: Bencher) {
+        let mut f = ModulatedLowPass::new(2000.0, 1.5, 0.35, 400.0);
+        let input = tone_input(BLOCK);
+        bencher.bench_local(|| run_mono_effect(&mut f, &input, BLOCK));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +290,13 @@ mod graph_voice {
     #[divan::bench]
     fn analog_voice_construct() {
         divan::black_box(analog_voice(0, BLOCK));
+    }
+
+    #[divan::bench]
+    fn lead_voice_block(bencher: Bencher) {
+        let mut synth = lead_voice(0, BLOCK);
+        prime_source(&mut synth);
+        bencher.bench_local(|| run_source(&mut synth, BLOCK));
     }
 }
 

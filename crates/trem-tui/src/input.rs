@@ -1,37 +1,63 @@
-//! Keyboard routing: maps crossterm keys to high-level [`Action`]s for each [`Mode`].
+//! Keyboard routing for **modal editors**: pattern grid and signal graph. Each editor
+//! owns a key family; [`InputContext`] disambiguates global chords (Tab, `?`, Esc) vs
+//! nested-graph exit. Future editors: see repository `docs/tui-editor-roadmap.md`.
 //!
-//! [`View`] is not passed here; callers interpret the same action differently per view.
+//! Full bindings: **`?`** help overlay. Sidebar shows a short **popular** subset only.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-/// Major screen: step sequencer vs. node graph.
+/// Which **editor surface** is focused (modal). Tab cycles this list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum View {
-    /// Row/column grid of notes and voices.
+pub enum Editor {
+    /// Step sequencer: time × voice.
     Pattern,
-    /// Synth graph navigation and parameter edit target.
+    /// Nested audio graph + parameters.
     Graph,
 }
 
-impl View {
-    /// Short label for the transport/header strip.
-    pub fn label(self) -> &'static str {
+impl Editor {
+    /// Short transport tab label.
+    pub fn tab_label(self) -> &'static str {
         match self {
-            View::Pattern => "PATTERN",
-            View::Graph => "GRAPH",
+            Editor::Pattern => "SEQ",
+            Editor::Graph => "GRAPH",
         }
     }
 
-    /// Switches between pattern and graph.
+    /// Sidebar / docs: human name.
+    pub fn title(self) -> &'static str {
+        match self {
+            Editor::Pattern => "Sequencer",
+            Editor::Graph => "Graph",
+        }
+    }
+
+    /// One-line intent for the modal system.
+    pub fn intent(self) -> &'static str {
+        match self {
+            Editor::Pattern => "time · voices",
+            Editor::Graph => "signal · routing",
+        }
+    }
+
     pub fn next(self) -> Self {
         match self {
-            View::Pattern => View::Graph,
-            View::Graph => View::Pattern,
+            Editor::Pattern => Editor::Graph,
+            Editor::Graph => Editor::Pattern,
         }
     }
 
-    /// Fixed ordering for UI lists that enumerate views.
-    pub const ALL: [View; 2] = [View::Pattern, View::Graph];
+    pub const ALL: [Editor; 2] = [Editor::Pattern, Editor::Graph];
+}
+
+/// State needed to route keys without ambiguity.
+#[derive(Debug, Clone, Copy)]
+pub struct InputContext<'a> {
+    pub editor: Editor,
+    pub mode: &'a Mode,
+    /// True when graph editor is inside a nested graph (`graph_path` non-empty).
+    pub graph_is_nested: bool,
+    pub help_open: bool,
 }
 
 /// Bottom pane visualizer: stereo waveform or frequency spectrum.
@@ -57,87 +83,75 @@ impl BottomPane {
     }
 }
 
-/// Whether arrow/vim keys move the grid/graph or edit parameters / enter notes.
+/// Within an editor: navigate vs change values / paint notes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// Navigation and transport-focused bindings.
     Normal,
-    /// Note entry on the pattern grid, coarse param nudge on the graph (see app handler).
     Edit,
 }
 
 impl Mode {
-    /// Short label for the status line.
     pub fn label(self) -> &'static str {
         match self {
-            Mode::Normal => "NAVIGATE",
+            Mode::Normal => "NAV",
             Mode::Edit => "EDIT",
         }
     }
 }
 
-/// Semantic user intent produced from a single key press (may be ignored per view in the app).
+/// Semantic user intent from one key (may be ignored in [`crate::App::handle_action`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Quit,
-    /// Tab: rotate pattern ↔ graph.
-    CycleView,
-    /// `e` / Esc in edit: enter or leave edit mode.
+    /// Tab: next editor.
+    CycleEditor,
+    /// `e` / Esc: toggle edit mode (when not in help / graph-exit).
     ToggleEdit,
-    /// Space: start/stop pattern playback.
     TogglePlay,
     MoveUp,
     MoveDown,
     MoveLeft,
     MoveRight,
-    /// Scale degree from home-row or digit keys (0–9, z/m column) while in edit mode.
     NoteInput(i32),
     DeleteNote,
     OctaveUp,
     OctaveDown,
     BpmUp,
     BpmDown,
-    /// Fine-adjust selected param (+): one-tenth of coarse step.
     ParamFineUp,
-    /// Fine-adjust selected param (-): one-tenth of coarse step.
     ParamFineDown,
-    /// `f`: Euclidean rhythm fill for the current voice column.
     EuclideanFill,
-    /// `r`: randomize notes on the current voice.
     RandomizeVoice,
-    /// `t`: reverse step order for the current voice.
     ReverseVoice,
-    /// `,` / `.`: rotate the current voice pattern along steps.
     ShiftVoiceLeft,
     ShiftVoiceRight,
-    /// `w` / `q` in edit: bump note velocity up or down.
     VelocityUp,
     VelocityDown,
-    /// `a` in edit: cycle gate length (staccato → medium → legato → full).
     GateCycle,
-    /// `u`: undo the last grid edit.
     Undo,
-    /// `U` (shift+u): redo the last undone edit.
     Redo,
-    /// `{` / `}`: adjust swing amount down / up.
     SwingUp,
     SwingDown,
-    /// Ctrl+s: save project.
     SaveProject,
-    /// Ctrl+o: load project.
     LoadProject,
-    /// Backtick: toggle bottom pane between waveform and spectrum.
     CycleBottomPane,
-    /// Enter: dive into a nested graph (only on nodes with children).
     EnterGraph,
-    /// Escape in graph at depth > 0: ascend to parent graph.
     ExitGraph,
+    /// `?` toggles full key reference overlay.
+    ToggleHelp,
 }
 
-/// Maps a key to an action for the given mode; release events and unbound keys yield `None`.
-pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
+/// Maps a key to an action; release events and unbound keys yield `None`.
+pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
     if key.kind == KeyEventKind::Release {
         return None;
+    }
+
+    if ctx.help_open {
+        return match key.code {
+            KeyCode::Esc | KeyCode::Char('?') => Some(Action::ToggleHelp),
+            _ => None,
+        };
     }
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -155,12 +169,14 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         match key.code {
             KeyCode::Left => return Some(Action::ParamFineDown),
             KeyCode::Right => return Some(Action::ParamFineUp),
+            KeyCode::Char('U') => return Some(Action::Redo),
             _ => {}
         }
     }
 
     match key.code {
-        KeyCode::Tab => return Some(Action::CycleView),
+        KeyCode::Tab => return Some(Action::CycleEditor),
+        KeyCode::Char('?') => return Some(Action::ToggleHelp),
         KeyCode::Char(' ') => return Some(Action::TogglePlay),
         KeyCode::Up => return Some(Action::MoveUp),
         KeyCode::Down => return Some(Action::MoveDown),
@@ -173,25 +189,34 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
         KeyCode::Char('{') => return Some(Action::SwingDown),
         KeyCode::Char('}') => return Some(Action::SwingUp),
         KeyCode::Char('`') => return Some(Action::CycleBottomPane),
-        KeyCode::Esc if *mode == Mode::Edit => return Some(Action::ToggleEdit),
-        KeyCode::Esc if *mode == Mode::Normal => return Some(Action::ExitGraph),
+        KeyCode::Esc if *ctx.mode == Mode::Edit => return Some(Action::ToggleEdit),
+        KeyCode::Esc
+            if *ctx.mode == Mode::Normal && ctx.editor == Editor::Graph && ctx.graph_is_nested =>
+        {
+            return Some(Action::ExitGraph);
+        }
         _ => {}
     }
 
+    match ctx.editor {
+        Editor::Pattern => pattern_keys(key.code, ctx.mode),
+        Editor::Graph => graph_keys(key.code, ctx.mode),
+    }
+}
+
+fn pattern_keys(code: KeyCode, mode: &Mode) -> Option<Action> {
     match mode {
-        Mode::Normal => match key.code {
+        Mode::Normal => match code {
             KeyCode::Char('q') => Some(Action::Quit),
             KeyCode::Char('e') => Some(Action::ToggleEdit),
             KeyCode::Char('u') => Some(Action::Undo),
-            KeyCode::Char('U') => Some(Action::Redo),
             KeyCode::Char('h') => Some(Action::MoveLeft),
             KeyCode::Char('l') => Some(Action::MoveRight),
             KeyCode::Char('k') => Some(Action::MoveUp),
             KeyCode::Char('j') => Some(Action::MoveDown),
-            KeyCode::Enter => Some(Action::EnterGraph),
             _ => None,
         },
-        Mode::Edit => match key.code {
+        Mode::Edit => match code {
             KeyCode::Delete | KeyCode::Backspace => Some(Action::DeleteNote),
             KeyCode::Char('z') => Some(Action::NoteInput(0)),
             KeyCode::Char('s') => Some(Action::NoteInput(1)),
@@ -216,5 +241,22 @@ pub fn handle_key(key: KeyEvent, mode: &Mode) -> Option<Action> {
             KeyCode::Char('a') => Some(Action::GateCycle),
             _ => None,
         },
+    }
+}
+
+fn graph_keys(code: KeyCode, mode: &Mode) -> Option<Action> {
+    match mode {
+        Mode::Normal => match code {
+            KeyCode::Char('q') => Some(Action::Quit),
+            KeyCode::Char('e') => Some(Action::ToggleEdit),
+            KeyCode::Char('u') => Some(Action::Undo),
+            KeyCode::Char('h') => Some(Action::MoveLeft),
+            KeyCode::Char('l') => Some(Action::MoveRight),
+            KeyCode::Char('k') => Some(Action::MoveUp),
+            KeyCode::Char('j') => Some(Action::MoveDown),
+            KeyCode::Enter => Some(Action::EnterGraph),
+            _ => None,
+        },
+        Mode::Edit => None,
     }
 }

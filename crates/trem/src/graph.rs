@@ -3,6 +3,7 @@
 //! [`Graph`] sorts nodes topologically, sums incoming edges per input port, and reuses a buffer pool per block.
 
 use crate::event::TimedEvent;
+use std::collections::HashMap;
 
 /// Stable index for a node in a [`Graph`].
 pub type NodeId = u32;
@@ -711,6 +712,67 @@ impl Graph {
         self.buffer_pool.get(idx)
     }
 
+    /// Resolve a nested graph: `path` is successive container node ids from the root (e.g. `[lead_id]`
+    /// for the inner graph of the Lead node). Empty path = this graph.
+    pub fn graph_at_path(&self, path: &[NodeId]) -> Option<&Graph> {
+        if path.is_empty() {
+            return Some(self);
+        }
+        let idx = path[0] as usize;
+        let inner = self.nodes.get(idx)?.as_ref()?.inner_graph()?;
+        inner.graph_at_path(&path[1..])
+    }
+
+    /// Like [`Self::output_buffer`], but for a node inside [`Self::graph_at_path(path)`](Self::graph_at_path).
+    pub fn output_buffer_at_path(
+        &self,
+        path: &[NodeId],
+        node: NodeId,
+        port: PortIdx,
+    ) -> Option<&[f32]> {
+        let g = self.graph_at_path(path)?;
+        let _ = g.nodes.get(node as usize)?.as_ref()?;
+        Some(g.output_buffer(node, port))
+    }
+
+    /// Port signature of a node reached via `path` (for preview / UI).
+    pub fn node_sig_at_path(&self, path: &[NodeId], node: NodeId) -> Option<Sig> {
+        let g = self.graph_at_path(path)?;
+        Some(g.nodes.get(node as usize)?.as_ref()?.info().sig)
+    }
+
+    /// Sum all edges feeding `node`:`dst_port` into `out[..frames]` (matches one input bus of the node).
+    /// `out` should be at least `frames` long; only the first `frames` samples are written.
+    pub fn mix_input_port_at_path(
+        &self,
+        path: &[NodeId],
+        node: NodeId,
+        dst_port: PortIdx,
+        frames: usize,
+        out: &mut [f32],
+    ) {
+        let n_write = frames.min(out.len());
+        out[..n_write].fill(0.0);
+        let Some(g) = self.graph_at_path(path) else {
+            return;
+        };
+        let Some(Some(proc)) = g.nodes.get(node as usize) else {
+            return;
+        };
+        if dst_port as usize >= proc.info().sig.inputs as usize {
+            return;
+        }
+        for edge in &g.edges {
+            if edge.dst_node != node || edge.dst_port != dst_port {
+                continue;
+            }
+            let src = g.output_buffer(edge.src_node, edge.src_port);
+            for i in 0..n_write.min(src.len()) {
+                out[i] += src[i];
+            }
+        }
+    }
+
     /// Calls [`Processor::reset`] on every node (e.g. clear oscillator phase, envelopes).
     pub fn reset(&mut self) {
         for node in &mut self.nodes {
@@ -825,11 +887,7 @@ impl Graph {
             })
             .collect();
 
-        let edges = self
-            .edges
-            .iter()
-            .map(|e| (e.src_node, e.src_port, e.dst_node, e.dst_port))
-            .collect();
+        let edges = self.edges.clone();
 
         GraphSnapshot {
             label: self.label.to_string(),
@@ -849,6 +907,44 @@ impl Graph {
         let node = self.nodes.get(node_id)?.as_ref()?;
         let inner = node.inner_graph()?;
         inner.snapshot_at_path(&path[1..])
+    }
+
+    /// Snapshots of every nested graph level reachable from the root, keyed by navigation path.
+    ///
+    /// Keys are **non-empty** paths: `[outer_id]`, `[outer_id, inner_id]`, … matching how the TUI
+    /// builds [`NodePath`] when drilling into nested processors (see `SetParam.path`).
+    pub fn nested_ui_snapshots(&self) -> HashMap<Vec<NodeId>, GraphSnapshot> {
+        let mut out = HashMap::new();
+        let root = self.snapshot();
+        for node in &root.nodes {
+            if !node.has_children {
+                continue;
+            }
+            let path = vec![node.id];
+            if let Some(snap) = self.snapshot_at_path(&path) {
+                Self::collect_nested_snapshots(self, &path, &snap, &mut out);
+            }
+        }
+        out
+    }
+
+    fn collect_nested_snapshots(
+        graph: &Graph,
+        path: &[NodeId],
+        snap: &GraphSnapshot,
+        out: &mut HashMap<Vec<NodeId>, GraphSnapshot>,
+    ) {
+        out.insert(path.to_vec(), snap.clone());
+        for node in &snap.nodes {
+            if !node.has_children {
+                continue;
+            }
+            let mut p = path.to_vec();
+            p.push(node.id);
+            if let Some(inner) = graph.snapshot_at_path(&p) {
+                Self::collect_nested_snapshots(graph, &p, &inner, out);
+            }
+        }
     }
 
     /// Set a parameter on a node reached via a path through nested graphs.
@@ -1012,7 +1108,7 @@ pub struct GraphSnapshot {
     pub label: String,
     pub sig: Sig,
     pub nodes: Vec<NodeSnapshot>,
-    pub edges: Vec<(u32, u16, u32, u16)>,
+    pub edges: Vec<Edge>,
 }
 
 /// Fluent builder for sequential processor chains.
@@ -1232,6 +1328,42 @@ mod tests {
         let out = outer.output_buffer(inner_id, 0);
         for &s in &out[..64] {
             assert!((s - 0.5).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn graph_at_path_mix_input_and_output_buffer() {
+        let mut inner = Graph::labeled(64, "inner");
+        let g0 = inner.add_node(Box::new(ConstGen { value: 0.1 }));
+        let g1 = inner.add_node(Box::new(ConstGen { value: 0.2 }));
+        let dbl = inner.add_node(Box::new(Doubler));
+        inner.connect(g0, 0, dbl, 0);
+        inner.connect(g1, 0, dbl, 0);
+        inner.set_output(dbl, 1);
+
+        let mut outer = Graph::new(64);
+        let inner_id = outer.add_node(Box::new(inner));
+        outer.run(64, 44100.0, &[]);
+
+        assert!(outer.graph_at_path(&[]).is_some());
+        let inner_g = outer.graph_at_path(&[inner_id]).expect("nested graph");
+        assert_eq!(inner_g.label, "inner");
+        assert_eq!(outer.node_sig_at_path(&[inner_id], dbl), Some(Sig::MONO));
+
+        let mut mix = vec![0.0f32; 64];
+        outer.mix_input_port_at_path(&[inner_id], dbl, 0, 64, &mut mix);
+        for &s in &mix[..64] {
+            assert!(
+                (s - 0.3).abs() < 1e-5,
+                "expected summed inputs 0.3, got {s}"
+            );
+        }
+
+        let ob = outer
+            .output_buffer_at_path(&[inner_id], dbl, 0)
+            .expect("output buffer");
+        for &s in &ob[..64] {
+            assert!((s - 0.6).abs() < 1e-5, "expected doubled 0.6, got {s}");
         }
     }
 
@@ -1626,6 +1758,23 @@ mod tests {
         let snap = outer.snapshot_at_path(&[nested_id]).unwrap();
         assert_eq!(snap.label, "inner");
         assert!(snap.nodes.len() >= 2);
+    }
+
+    #[test]
+    fn nested_ui_snapshots_maps_nested_id() {
+        let inner = Graph::chain(
+            "inner",
+            64,
+            vec![Box::new(ConstGen { value: 1.0 }), Box::new(Doubler)],
+        )
+        .unwrap();
+
+        let mut outer = Graph::labeled(64, "root");
+        let nested_id = outer.add_node(Box::new(inner));
+
+        let map = outer.nested_ui_snapshots();
+        let snap = map.get(&vec![nested_id]).expect("nested path key");
+        assert_eq!(snap.label, "inner");
     }
 
     #[test]

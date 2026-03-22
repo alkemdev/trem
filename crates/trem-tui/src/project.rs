@@ -4,7 +4,15 @@
 //! via the `serde` feature on `trem`, so the grid round-trips directly.
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Default save/load file for **Save project** / **Load project** in the TUI.
+pub const DEFAULT_PROJECT_FILE: &str = "project.trem.json";
+
+#[inline]
+pub fn default_project_path() -> PathBuf {
+    PathBuf::from(DEFAULT_PROJECT_FILE)
+}
 
 #[derive(Serialize, Deserialize)]
 struct ParamOverride {

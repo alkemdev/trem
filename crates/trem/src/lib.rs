@@ -12,7 +12,8 @@
 //! - [`tree`] — Recursive temporal trees for rhythmic subdivision (`Seq`, `Par`, `Weight`)
 //! - [`grid`] — 2D step sequencer grid (rows = steps, columns = voices)
 //! - [`graph`] — Audio processing DAG with typed processor nodes
-//! - [`dsp`] — Built-in processors: oscillators, envelopes, filters, effects, drum synths
+//! - [`dsp`] — Built-in processors: oscillators, envelopes, filters, distortion, effects, drum synths,
+//!   plus composite voices [`dsp::analog_voice`] and [`dsp::lead_voice`]
 //! - [`euclidean`] — Euclidean rhythm generation (Toussaint 2005)
 //! - [`render`] — Offline rendering of trees/grids through audio graphs
 

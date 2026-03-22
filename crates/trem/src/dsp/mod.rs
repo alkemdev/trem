@@ -2,6 +2,7 @@
 //! filters, noise, drum voices, time-based effects, EQ, and composable graph voices.
 
 pub mod delay;
+pub mod distort;
 pub mod drums;
 pub mod dynamics;
 pub mod env;
@@ -18,11 +19,12 @@ pub mod synth;
 pub mod wavetable;
 
 pub use delay::StereoDelay;
+pub use distort::Distortion;
 pub use drums::{HatSynth, KickSynth, SnareSynth};
 pub use dynamics::{Compressor, Limiter};
 pub use env::Adsr;
 pub use eq::ParametricEq;
-pub use filter::{BiquadFilter, FilterType};
+pub use filter::{BiquadFilter, FilterType, ModulatedLowPass};
 pub use gain::{Gain, MonoGain, StereoGain, StereoPan};
 pub use graphic_eq::GraphicEq;
 pub use lfo::Lfo;
@@ -30,5 +32,5 @@ pub use mix::{MonoCrossfade, StereoMixer};
 pub use noise::Noise;
 pub use osc::{Oscillator, Waveform};
 pub use reverb::PlateReverb;
-pub use synth::analog_voice;
+pub use synth::{analog_voice, lead_voice};
 pub use wavetable::Wavetable;

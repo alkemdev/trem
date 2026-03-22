@@ -1,0 +1,23 @@
+#!/usr/bin/env expect -f
+# PTY smoke: build trem binary, run until UI settles, quit with q.
+# Usage (repo root): expect scripts/tui-smoke.expect
+# Requires: expect, working audio/terminal (may fail headless).
+
+set timeout 45
+set root [file dirname [file dirname [info script]]]
+cd $root
+
+exec cargo build -q -p trem-bin
+
+spawn ./target/debug/trem
+expect {
+    timeout {
+        puts stderr "timeout: trem did not produce output in time"
+        exit 1
+    }
+    -re . {}
+}
+
+sleep 5
+send "q"
+expect eof

@@ -17,6 +17,9 @@ pub const MUTED: Color = Color::Rgb(55, 55, 70);
 pub const GREEN: Color = Color::Rgb(80, 200, 120);
 pub const YELLOW: Color = Color::Rgb(230, 200, 80);
 
+/// Golden ratio φ = (1+√5)/2 — used for musically “irrational” UI phase accents.
+pub const PHI: f64 = 1.618_033_988_749_895;
+
 /// Top bar / section titles.
 pub fn header() -> Style {
     Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)

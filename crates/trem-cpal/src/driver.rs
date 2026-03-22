@@ -2,17 +2,22 @@
 //!
 //! [`AudioEngine`] builds the device stream, drains any stale commands, and runs the graph in the callback.
 
-use crate::bridge::{AudioBridge, Command, Notification};
+use crate::bridge::{AudioBridge, Command, Notification, ScopeFocus};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use trem::event::{GraphEvent, TimedEvent};
-use trem::graph::Graph;
+use trem::graph::{Graph, Sig};
 
 struct CallbackState {
     cmd_rx: rtrb::Consumer<Command>,
     notif_tx: rtrb::Producer<Notification>,
     graph: Graph,
     output_node: u32,
+    /// Inst-bus node id for [`ScopeFocus::PatchBuses`] (pre-master submix).
+    scope_input_node: Option<u32>,
+    scope_focus: ScopeFocus,
+    preview_scratch_l: Vec<f32>,
+    preview_scratch_r: Vec<f32>,
     sample_rate: f64,
     playing: bool,
     bpm: f64,
@@ -24,8 +29,10 @@ struct CallbackState {
     meter_peak_l: f32,
     meter_peak_r: f32,
     pos_acc: usize,
-    scope_buf: Box<[f32]>,
-    scope_len: usize,
+    scope_master: Box<[f32]>,
+    scope_master_len: usize,
+    scope_graph_in: Box<[f32]>,
+    scope_graph_in_len: usize,
     scope_acc: usize,
 }
 
@@ -86,6 +93,9 @@ impl CallbackState {
                     value,
                 } => {
                     self.graph.set_param_at_path(&path, param_id, value);
+                }
+                Command::SetScopeFocus(focus) => {
+                    self.scope_focus = focus;
                 }
             }
         }
@@ -179,10 +189,21 @@ impl CallbackState {
             return;
         }
         self.scope_acc = 0;
-        if self.scope_len > 0 {
-            let data = self.scope_buf[..self.scope_len].to_vec();
-            self.scope_len = 0;
-            let _ = self.notif_tx.push(Notification::ScopeData(data));
+        if self.scope_master_len > 0 {
+            let master = self.scope_master[..self.scope_master_len].to_vec();
+            let graph_in = if self.scope_graph_in_len > 0 {
+                self.scope_graph_in[..self.scope_graph_in_len].to_vec()
+            } else {
+                master.clone()
+            };
+            self.scope_master_len = 0;
+            self.scope_graph_in_len = 0;
+            let _ = self
+                .notif_tx
+                .push(Notification::ScopeData(crate::bridge::ScopeSnapshot {
+                    master,
+                    graph_in,
+                }));
         }
     }
 
@@ -209,11 +230,6 @@ impl CallbackState {
             if ar > self.meter_peak_r {
                 self.meter_peak_r = ar;
             }
-            if self.scope_len + 1 < self.scope_buf.len() {
-                self.scope_buf[self.scope_len] = li;
-                self.scope_buf[self.scope_len + 1] = ri;
-                self.scope_len += 2;
-            }
             if channels >= 2 {
                 data[i * channels] = li;
                 data[i * channels + 1] = ri;
@@ -221,6 +237,8 @@ impl CallbackState {
                 data[i] = 0.5 * (li + ri);
             }
         }
+
+        self.append_scope_samples(frames);
         self.scope_acc += frames;
         self.flush_scope_if_due();
         self.meter_acc += frames;
@@ -230,6 +248,108 @@ impl CallbackState {
         }
 
         self.push_position_if_due(frames);
+    }
+
+    /// Fills `scope_graph_in` (left pane = “in”) and `scope_master` (right = “out”) from the
+    /// active [`ScopeFocus`].
+    fn append_scope_samples(&mut self, frames: usize) {
+        let cap = self.scope_master.len();
+        match &self.scope_focus {
+            ScopeFocus::PatchBuses => {
+                let ml = self.graph.output_buffer(self.output_node, 0);
+                let mr = self.graph.output_buffer(self.output_node, 1);
+                let (il, ir) = if let Some(nid) = self.scope_input_node {
+                    (
+                        self.graph.output_buffer(nid, 0),
+                        self.graph.output_buffer(nid, 1),
+                    )
+                } else {
+                    (ml, mr)
+                };
+                for i in 0..frames {
+                    if self.scope_master_len + 2 > cap {
+                        break;
+                    }
+                    let gli = il.get(i).copied().unwrap_or(0.0);
+                    let gri = ir.get(i).copied().unwrap_or(gli);
+                    self.scope_graph_in[self.scope_graph_in_len] = gli;
+                    self.scope_graph_in[self.scope_graph_in_len + 1] = gri;
+                    self.scope_graph_in_len += 2;
+                    let m0 = ml.get(i).copied().unwrap_or(0.0);
+                    let m1 = mr.get(i).copied().unwrap_or(m0);
+                    self.scope_master[self.scope_master_len] = m0;
+                    self.scope_master[self.scope_master_len + 1] = m1;
+                    self.scope_master_len += 2;
+                }
+            }
+            ScopeFocus::GraphNode { graph_path, node } => {
+                if self.preview_scratch_l.len() < frames {
+                    self.preview_scratch_l.resize(frames, 0.0);
+                    self.preview_scratch_r.resize(frames, 0.0);
+                }
+                let sig = self
+                    .graph
+                    .node_sig_at_path(graph_path, *node)
+                    .unwrap_or(Sig {
+                        inputs: 0,
+                        outputs: 0,
+                    });
+                let ins = sig.inputs as usize;
+                let outs = sig.outputs as usize;
+                if ins >= 1 {
+                    self.graph.mix_input_port_at_path(
+                        graph_path,
+                        *node,
+                        0,
+                        frames,
+                        &mut self.preview_scratch_l[..frames],
+                    );
+                } else {
+                    self.preview_scratch_l[..frames].fill(0.0);
+                }
+                if ins >= 2 {
+                    self.graph.mix_input_port_at_path(
+                        graph_path,
+                        *node,
+                        1,
+                        frames,
+                        &mut self.preview_scratch_r[..frames],
+                    );
+                } else {
+                    self.preview_scratch_r[..frames]
+                        .copy_from_slice(&self.preview_scratch_l[..frames]);
+                }
+                for i in 0..frames {
+                    if self.scope_master_len + 2 > cap {
+                        break;
+                    }
+                    self.scope_graph_in[self.scope_graph_in_len] = self.preview_scratch_l[i];
+                    self.scope_graph_in[self.scope_graph_in_len + 1] = self.preview_scratch_r[i];
+                    self.scope_graph_in_len += 2;
+
+                    let ol0 = self
+                        .graph
+                        .output_buffer_at_path(graph_path, *node, 0)
+                        .and_then(|b| b.get(i))
+                        .copied()
+                        .unwrap_or(0.0);
+                    let ol1 = if outs >= 2 {
+                        self.graph
+                            .output_buffer_at_path(graph_path, *node, 1)
+                            .and_then(|b| b.get(i))
+                            .copied()
+                            .unwrap_or(ol0)
+                    } else if outs == 1 {
+                        ol0
+                    } else {
+                        0.0
+                    };
+                    self.scope_master[self.scope_master_len] = ol0;
+                    self.scope_master[self.scope_master_len + 1] = ol1;
+                    self.scope_master_len += 2;
+                }
+            }
+        }
     }
 }
 
@@ -241,10 +361,14 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     /// Opens the default F32 stereo output at `sample_rate`, wiring `audio_bridge` and `graph` into the callback.
+    ///
+    /// `scope_input_node`: optional graph node id whose stereo output is copied into
+    /// [`crate::bridge::ScopeSnapshot::graph_in`] (e.g. instrument bus before master FX).
     pub fn new(
         audio_bridge: AudioBridge,
         graph: Graph,
         output_node: u32,
+        scope_input_node: Option<u32>,
         sample_rate: f64,
     ) -> Result<Self, anyhow::Error> {
         let host = cpal::default_host();
@@ -277,6 +401,10 @@ impl AudioEngine {
             notif_tx,
             graph,
             output_node,
+            scope_input_node,
+            scope_focus: ScopeFocus::PatchBuses,
+            preview_scratch_l: Vec::new(),
+            preview_scratch_r: Vec::new(),
             sample_rate,
             playing: false,
             bpm: 120.0,
@@ -288,8 +416,10 @@ impl AudioEngine {
             meter_peak_l: 0.0,
             meter_peak_r: 0.0,
             pos_acc: 0,
-            scope_buf: vec![0.0f32; 8192].into_boxed_slice(),
-            scope_len: 0,
+            scope_master: vec![0.0f32; 8192].into_boxed_slice(),
+            scope_master_len: 0,
+            scope_graph_in: vec![0.0f32; 8192].into_boxed_slice(),
+            scope_graph_in_len: 0,
             scope_acc: 0,
         };
         state.block_events.reserve(4096);

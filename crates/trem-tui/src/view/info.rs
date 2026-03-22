@@ -1,8 +1,9 @@
-//! Info panel widget: displays note details, graph state, contextual key hints,
-//! and processor/parameter help text in a sidebar.
+//! Left column: cursor, project, contextual help, keys (+ context hints), then **perf**
+//! (play/BPM, CPU/RSS, meters) at the bottom.
 
-use crate::input::{Mode, View};
+use crate::input::{Editor, Mode};
 use crate::theme;
+use crate::view::perf::{draw_perf_sections, HostStatsSnapshot};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -37,23 +38,11 @@ fn format_note_long(event: &NoteEvent, scale: &Scale) -> String {
     }
 }
 
-fn meter_bar(peak: f32, width: usize) -> (String, Style) {
-    let filled = ((peak.clamp(0.0, 1.0) * width as f32).round() as usize).min(width);
-    let bar: String = "\u{2588}".repeat(filled) + &"\u{2591}".repeat(width - filled);
-    let color = if peak > 0.9 {
-        theme::ACCENT
-    } else if peak > 0.6 {
-        theme::YELLOW
-    } else {
-        theme::GREEN
-    };
-    (bar, Style::new().fg(color).bg(theme::BG))
-}
-
-fn context_hints(view: &View, mode: &Mode) -> Vec<(&'static str, &'static str)> {
-    match (view, mode) {
-        (View::Pattern, Mode::Normal) => vec![
-            ("TAB", "view"),
+fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static str)> {
+    match (editor, mode) {
+        (Editor::Pattern, Mode::Normal) => vec![
+            ("TAB", "editor"),
+            ("?", "full keys"),
             ("e", "edit"),
             ("SPC", "play"),
             ("\u{2190}\u{2192}\u{2191}\u{2193}", "move"),
@@ -64,8 +53,9 @@ fn context_hints(view: &View, mode: &Mode) -> Vec<(&'static str, &'static str)> 
             ("u/U", "undo/redo"),
             ("q", "quit"),
         ],
-        (View::Pattern, Mode::Edit) => vec![
+        (Editor::Pattern, Mode::Edit) => vec![
             ("ESC", "nav"),
+            ("?", "full keys"),
             ("z-m", "notes"),
             ("DEL", "clear"),
             ("a", "gate"),
@@ -77,32 +67,66 @@ fn context_hints(view: &View, mode: &Mode) -> Vec<(&'static str, &'static str)> 
             ("{/}", "swing"),
             ("SPC", "play"),
         ],
-        (View::Graph, Mode::Normal) => vec![
-            ("TAB", "view"),
+        (Editor::Graph, Mode::Normal) => vec![
+            ("TAB", "editor"),
+            ("?", "full keys"),
             ("e", "edit FX"),
             ("\u{2190}\u{2192}", "follow"),
             ("\u{2191}\u{2193}", "layer"),
             ("`", "scope/spec"),
+            ("btm", "IN|OUT"),
             ("SPC", "play"),
             ("q", "quit"),
         ],
-        (View::Graph, Mode::Edit) => vec![
+        (Editor::Graph, Mode::Edit) => vec![
             ("ESC", "nav"),
+            ("?", "full keys"),
             ("\u{2191}\u{2193}", "param"),
             ("\u{2190}\u{2192}", "adjust"),
             ("S+\u{2190}\u{2192}", "fine"),
             ("+/-", "fine"),
             ("`", "scope/spec"),
+            ("btm", "IN|OUT"),
             ("SPC", "play"),
         ],
     }
 }
 
-/// Right-hand sidebar showing contextual information: current note, graph
-/// node details, keybinding hints, and processor help text.
+/// Extra key hints for the **current** cell / graph context (appended under KEYS).
+fn contextual_detail_hints(
+    editor: &Editor,
+    mode: &Mode,
+    note_at_cursor: Option<&NoteEvent>,
+    graph_can_enter_nested: bool,
+    graph_is_nested: bool,
+) -> Vec<(&'static str, &'static str)> {
+    let mut v = Vec::new();
+    match (editor, mode) {
+        (Editor::Pattern, Mode::Edit) => {
+            if note_at_cursor.is_none() {
+                v.push(("z-m", "paint note"));
+                v.push(("0-9", "degree"));
+            } else {
+                v.push(("a", "cycle gate"));
+                v.push(("DEL", "clear cell"));
+            }
+        }
+        (Editor::Graph, Mode::Normal) => {
+            if graph_can_enter_nested {
+                v.push(("RET", "inner graph"));
+            }
+            if graph_is_nested {
+                v.push(("ESC", "up one level"));
+            }
+        }
+        _ => {}
+    }
+    v
+}
+
 pub struct InfoView<'a> {
     pub mode: &'a Mode,
-    pub view: &'a View,
+    pub editor: &'a Editor,
     pub octave: i32,
     pub cursor_step: u32,
     pub cursor_voice: u32,
@@ -111,14 +135,21 @@ pub struct InfoView<'a> {
     pub note_at_cursor: Option<&'a NoteEvent>,
     pub scale: &'a Scale,
     pub scale_name: &'a str,
-    pub peak_l: f32,
-    pub peak_r: f32,
     pub instrument_names: &'a [String],
     pub swing: f64,
     pub euclidean_k: u32,
     pub undo_depth: usize,
     pub node_description: &'a str,
     pub param_help: &'a str,
+    /// Graph editor: label of the node under the cursor.
+    pub graph_node_name: Option<&'a str>,
+    pub graph_can_enter_nested: bool,
+    pub graph_is_nested: bool,
+    pub host_stats: &'a HostStatsSnapshot,
+    pub peak_l: f32,
+    pub peak_r: f32,
+    pub playing: bool,
+    pub bpm: f64,
 }
 
 impl<'a> Widget for InfoView<'a> {
@@ -196,6 +227,35 @@ impl<'a> Widget for InfoView<'a> {
             "Mode",
             vec![Span::styled(self.mode.label(), mode_style)],
         );
+        draw_kv(
+            buf,
+            &mut y,
+            "Editor",
+            vec![
+                Span::styled(self.editor.title(), val),
+                Span::styled(" · ", dim),
+                Span::styled(self.editor.intent(), dim),
+            ],
+        );
+        if let Some(name) = self.graph_node_name {
+            let short = {
+                let n = name.chars().count();
+                if n <= 18 {
+                    name.to_string()
+                } else {
+                    name.chars().take(17).collect::<String>() + "…"
+                }
+            };
+            draw_kv(
+                buf,
+                &mut y,
+                "Node",
+                vec![Span::styled(
+                    short,
+                    Style::new().fg(theme::ACCENT).bg(theme::BG),
+                )],
+            );
+        }
         draw_kv(
             buf,
             &mut y,
@@ -303,24 +363,6 @@ impl<'a> Widget for InfoView<'a> {
             return;
         }
 
-        // --- AUDIO section ---
-        if !draw_section(buf, &mut y, "AUDIO") {
-            return;
-        }
-
-        let meter_w = (w as usize).saturating_sub(9).min(14);
-        if meter_w > 0 && y + 1 < y_max {
-            let (bar_l, style_l) = meter_bar(self.peak_l, meter_w);
-            draw_kv(buf, &mut y, "L", vec![Span::styled(bar_l, style_l)]);
-            let (bar_r, style_r) = meter_bar(self.peak_r, meter_w);
-            draw_kv(buf, &mut y, "R", vec![Span::styled(bar_r, style_r)]);
-        }
-
-        y += 1;
-        if y >= y_max {
-            return;
-        }
-
         // --- HELP section (contextual descriptions) ---
         if !self.node_description.is_empty() || !self.param_help.is_empty() {
             if !draw_section(buf, &mut y, "HELP") {
@@ -357,7 +399,7 @@ impl<'a> Widget for InfoView<'a> {
         let key_style = Style::new().fg(theme::MUTED).bg(theme::BG);
         let hint_style = Style::new().fg(theme::DIM).bg(theme::BG);
 
-        for (k, desc) in context_hints(self.view, self.mode) {
+        for (k, desc) in context_hints(self.editor, self.mode) {
             if y >= y_max {
                 break;
             }
@@ -368,5 +410,55 @@ impl<'a> Widget for InfoView<'a> {
             buf.set_line(x, y, &line, w);
             y += 1;
         }
+
+        let extras = contextual_detail_hints(
+            self.editor,
+            self.mode,
+            self.note_at_cursor,
+            self.graph_can_enter_nested,
+            self.graph_is_nested,
+        );
+        if !extras.is_empty() && y < y_max {
+            y += 1;
+            if y < y_max {
+                let pad = w.saturating_sub(10) as usize;
+                let sub = Line::from(vec![
+                    Span::styled(
+                        " context ",
+                        Style::new()
+                            .fg(theme::YELLOW)
+                            .bg(theme::BG)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("\u{2500}".repeat(pad), dim),
+                ]);
+                buf.set_line(x, y, &sub, w);
+                y += 1;
+            }
+            for (k, desc) in extras {
+                if y >= y_max {
+                    break;
+                }
+                let line = Line::from(vec![
+                    Span::styled(format!(" {:<6}", k), key_style),
+                    Span::styled(desc, hint_style),
+                ]);
+                buf.set_line(x, y, &line, w);
+                y += 1;
+            }
+        }
+
+        draw_perf_sections(
+            buf,
+            x,
+            w,
+            &mut y,
+            y_max,
+            self.host_stats,
+            self.peak_l,
+            self.peak_r,
+            self.playing,
+            self.bpm,
+        );
     }
 }

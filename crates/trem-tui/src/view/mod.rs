@@ -5,7 +5,11 @@
 //! transport bar, etc.).
 
 pub mod graph;
+pub mod help;
 pub mod info;
+pub mod perf;
+
+pub use perf::HostStatsSnapshot;
 pub mod pattern;
 pub mod scope;
 pub mod spectrum;
