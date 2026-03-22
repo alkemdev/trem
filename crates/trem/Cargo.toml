@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "A mathematical music engine — rational time, xenharmonic pitch, recursive trees, audio graphs"
+repository = "https://github.com/alkemdev/trem"
+readme = "../../README.md"
+documentation = "https://docs.rs/trem"
 keywords = ["audio", "music", "dsp", "xenharmonic", "sequencer"]
 categories = ["multimedia::audio"]
 

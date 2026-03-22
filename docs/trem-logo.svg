@@ -1,0 +1,107 @@
+<svg width="1180" height="480" viewBox="0 0 1180 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">trem logo</title>
+  <desc id="desc">Logo-style mathematical permutation diagram mapping TERM to TREM.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9.5" refY="6" orient="auto">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#18e0ff"/>
+    </marker>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#050b14"/>
+      <stop offset="100%" stop-color="#0c1322"/>
+    </linearGradient>
+    <linearGradient id="cellFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#172338"/>
+      <stop offset="100%" stop-color="#0d1526"/>
+    </linearGradient>
+    <linearGradient id="swapFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#143449"/>
+      <stop offset="100%" stop-color="#0d2334"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.8" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="cellShadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <style>
+      .frame {
+        fill: url(#bg);
+        stroke: #1f2a44;
+        stroke-width: 2;
+      }
+      .cell {
+        fill: url(#cellFill);
+        stroke: #4a5a74;
+        stroke-width: 2.6;
+      }
+      .swap {
+        fill: url(#swapFill);
+        stroke: #18e0ff;
+      }
+      .inset {
+        fill: none;
+        stroke: rgba(232, 241, 255, 0.15);
+        stroke-width: 1.5;
+      }
+      .inset-swap {
+        stroke: rgba(24, 224, 255, 0.55);
+      }
+      .letter {
+        font-family: "JetBrains Mono", "SFMono-Regular", "Menlo", "Consolas", monospace;
+        font-size: 58px;
+        font-weight: 700;
+        text-anchor: middle;
+        dominant-baseline: middle;
+        fill: #e8f1ff;
+      }
+      .arrow {
+        fill: none;
+        stroke: #18e0ff;
+        stroke-width: 3.6;
+        stroke-linecap: round;
+        marker-end: url(#arrow);
+      }
+    </style>
+  </defs>
+
+  <rect x="20" y="20" width="1140" height="440" rx="28" class="frame"/>
+
+  <rect x="130" y="82" width="140" height="92" rx="14" class="cell" filter="url(#cellShadow)"/>
+  <rect x="370" y="82" width="140" height="92" rx="14" class="cell swap" filter="url(#cellShadow)"/>
+  <rect x="610" y="82" width="140" height="92" rx="14" class="cell swap" filter="url(#cellShadow)"/>
+  <rect x="850" y="82" width="140" height="92" rx="14" class="cell" filter="url(#cellShadow)"/>
+
+  <rect x="130" y="306" width="140" height="92" rx="14" class="cell" filter="url(#cellShadow)"/>
+  <rect x="370" y="306" width="140" height="92" rx="14" class="cell swap" filter="url(#cellShadow)"/>
+  <rect x="610" y="306" width="140" height="92" rx="14" class="cell swap" filter="url(#cellShadow)"/>
+  <rect x="850" y="306" width="140" height="92" rx="14" class="cell" filter="url(#cellShadow)"/>
+
+  <rect x="139" y="91" width="122" height="74" rx="10" class="inset"/>
+  <rect x="379" y="91" width="122" height="74" rx="10" class="inset inset-swap"/>
+  <rect x="619" y="91" width="122" height="74" rx="10" class="inset inset-swap"/>
+  <rect x="859" y="91" width="122" height="74" rx="10" class="inset"/>
+
+  <rect x="139" y="315" width="122" height="74" rx="10" class="inset"/>
+  <rect x="379" y="315" width="122" height="74" rx="10" class="inset inset-swap"/>
+  <rect x="619" y="315" width="122" height="74" rx="10" class="inset inset-swap"/>
+  <rect x="859" y="315" width="122" height="74" rx="10" class="inset"/>
+
+  <text x="200" y="128" class="letter">T</text>
+  <text x="440" y="128" class="letter">E</text>
+  <text x="680" y="128" class="letter">R</text>
+  <text x="920" y="128" class="letter">M</text>
+
+  <text x="200" y="352" class="letter">T</text>
+  <text x="440" y="352" class="letter">R</text>
+  <text x="680" y="352" class="letter">E</text>
+  <text x="920" y="352" class="letter">M</text>
+
+  <path d="M 200 178 L 200 302" class="arrow" filter="url(#glow)"/>
+  <path d="M 440 178 C 440 254, 654 254, 680 302" class="arrow" filter="url(#glow)"/>
+  <path d="M 680 178 C 680 254, 466 254, 440 302" class="arrow" filter="url(#glow)"/>
+  <path d="M 920 178 L 920 302" class="arrow" filter="url(#glow)"/>
+</svg>

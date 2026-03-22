@@ -2,9 +2,14 @@
 
 A mathematical music engine in Rust.
 
+![trem logo showing TERM rearranged to TREM](docs/trem-logo.png)
+
 **trem** is a library-first DAW built on exact arithmetic, xenharmonic pitch
 systems, recursive temporal trees, and typed audio graphs. The terminal UI is a
-first-class citizen.
+first-class citizen. The name is an anagram of `term` and also a nod to
+**tremolo**: repeating, pulsing motion in sound.
+
+Logo note: the `TERM -> TREM` swap matches the size-4 FFT bit-reversal permutation (`[0,1,2,3] -> [0,2,1,3]`).
 
 ## Try it (install & run)
 

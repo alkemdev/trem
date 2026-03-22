@@ -3,9 +3,9 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-trem = { path = "crates/trem" }
-trem-cpal = { path = "crates/trem-cpal" }
-trem-tui = { path = "crates/trem-tui" }
+trem = { path = "crates/trem", version = "0.1.0" }
+trem-cpal = { path = "crates/trem-cpal", version = "0.1.0" }
+trem-tui = { path = "crates/trem-tui", version = "0.1.0" }
 ratatui = "0.30"
 crossterm = "0.28"
 cpal = "0.17"
@@ -18,6 +18,22 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "TUI binary for the trem mathematical music engine"
+repository = "https://github.com/alkemdev/trem"
+readme = "README.md"
+documentation = "https://docs.rs/trem-bin"
+exclude = [
+    "crates/",
+    "docs/",
+    "prop/",
+    "todo/",
+    "work/",
+    "tests/",
+    ".cursor/",
+    ".github/",
+    "scripts/",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+]
 
 [[bin]]
 name = "trem"
