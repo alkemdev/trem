@@ -44,6 +44,13 @@ let bytes = std::fs::read("piece.mid")?;
 let clip = midi::import_midi(&bytes, midi::MidiImportOptions::default())?;
 ```
 
+From the **trem** repo root (bare **`cargo run`** starts the synth TUI; add **`-- rung …`** for these):
+
+```bash
+cargo run -- rung import piece.mid -o piece.rung.json
+cargo run -- rung edit piece.rung.json   # piano roll + looped preview (16 analog voices; class→MIDI pitch)
+```
+
 ## Crate API
 
 - Package name: **`trem-rung`** (Rust import: **`trem_rung`**).

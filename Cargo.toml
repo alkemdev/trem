@@ -6,11 +6,14 @@ resolver = "2"
 trem = { path = "crates/trem", version = "0.1.0" }
 trem-cpal = { path = "crates/trem-cpal", version = "0.1.0" }
 trem-tui = { path = "crates/trem-tui", version = "0.1.0" }
+trem-rung = { path = "crates/trem-rung", version = "0.1.0", features = ["midi"] }
 ratatui = "0.30"
 crossterm = "0.28"
 cpal = "0.17"
 rtrb = "0.3"
 anyhow = "1"
+clap = { version = "4.5", features = ["derive"] }
+num-rational = "0.4"
 
 [package]
 name = "trem-bin"
@@ -43,6 +46,9 @@ path = "src/main.rs"
 trem = { workspace = true }
 trem-cpal = { workspace = true }
 trem-tui = { workspace = true }
+trem-rung = { workspace = true }
 anyhow = { workspace = true }
+clap = { workspace = true }
+num-rational = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }

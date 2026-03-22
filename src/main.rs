@@ -1,8 +1,12 @@
-//! `trem` — terminal UI entrypoint. Patch + pattern live in [`demo`].
+//! `trem` — default: synth TUI. **`trem rung import|edit`** for clip tools.
 
+mod cli;
 mod demo;
+mod rung_editor;
+mod rung_playback;
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -14,6 +18,21 @@ use trem::pitch::Tuning;
 const DEMO_BPM: f64 = 146.0;
 
 fn main() -> Result<()> {
+    let cli = cli::Cli::parse();
+    match cli.command {
+        None | Some(cli::Commands::Tui) => run_tui(),
+        Some(cli::Commands::Rung { sub }) => match sub {
+            cli::RungCommands::Import {
+                input,
+                output,
+                class_offset,
+            } => cli::run_rung_import(input, output, class_offset),
+            cli::RungCommands::Edit { path } => rung_editor::run(path),
+        },
+    }
+}
+
+fn run_tui() -> Result<()> {
     let scale = Tuning::edo12().to_scale();
     let (graph, output_node, inst_bus_id, graph_nodes) = demo::build_graph();
 

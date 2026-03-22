@@ -1,6 +1,6 @@
 # Demo patch (`trem` binary)
 
-This directory is the **default session** loaded by `cargo run` / the `trem` binary.
+This directory is the **default session** loaded by **`trem`** / **`cargo run`** (or explicitly `trem tui`).
 
 | File        | Role |
 |-------------|------|

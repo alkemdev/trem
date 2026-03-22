@@ -21,6 +21,11 @@ impl BeatTime {
     pub fn rational(self) -> Rational64 {
         self.0
     }
+
+    /// Add signed beat delta (exact rational).
+    pub fn add_beats(self, delta: Rational64) -> Self {
+        Self(self.0 + delta)
+    }
 }
 
 impl fmt::Display for BeatTime {

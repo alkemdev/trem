@@ -23,9 +23,37 @@ cd trem
 cargo run
 ```
 
-- **Binary name:** `trem` (workspace package `trem-bin`).
+- **Binary name:** `trem` (workspace package `trem-bin`). **Default:** running `trem` or `cargo run` starts the **synth / pattern TUI**. Use **`trem rung …`** for MIDI import and Rung clip edit; **`trem tui`** is the same as bare `trem`.
 - **First run** compiles dependencies; later runs are fast.
-- **Demo patch** lives in `src/demo/`; `src/main.rs` only wires graph + TUI.
+- **Demo patch** lives in `src/demo/`; `src/main.rs` wires CLI + TUI.
+
+### Rung clip tools (`trem rung`)
+
+**Rung** is the JSON clip format (see **`crates/trem-rung/README.md`**).
+
+```bash
+trem rung import piece.mid              # → piece.rung.json next to the input
+trem rung import piece.mid -o out.json
+trem rung edit piece.rung.json          # piano-roll editor (needs a real TTY)
+trem rung import --help
+```
+
+With **cargo**:
+
+```bash
+cargo run -- rung import piece.mid
+cargo run -- rung edit piece.rung.json   # piano roll + **preview synth** (Space play/pause, 9/0 BPM); needs audio device
+```
+
+MIDI import: **1 beat = 1 MIDI quarter note**; `class` = MIDI key (+ optional `--class-offset`).
+
+Example MIDIs ship under **`assets/midi/wtc/`** (John Sankey + Mutopia; see **`assets/midi/wtc/README.md`**). Try Sankey Book I pair 1 (prelude+fugue):
+
+```bash
+cargo run -- rung import assets/midi/wtc/sankey/bwv846.mid
+```
+
+Refresh from upstream: `python3 scripts/fetch_wtc_example_midis.py`
 
 ### Prebuilt Linux binary (GitHub Actions)
 
@@ -81,7 +109,7 @@ cargo fmt --all -- --check
 
 ### WSL
 
-- **Real-time audio + interactive TUI** under WSL1/WSL2 is **unreliable** (no native low-latency path like macOS/Linux desktop). Prefer **native Windows**, **native Linux**, or **macOS** for `cargo run`.
+- **Real-time audio + interactive TUI** under WSL1/WSL2 is **unreliable** (no native low-latency path like macOS/Linux desktop). Prefer **native Windows**, **native Linux**, or **macOS** for `cargo run` / `trem`.
 
 ## 4. Using the TUI
 
