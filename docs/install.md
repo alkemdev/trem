@@ -27,6 +27,22 @@ cargo run
 - **First run** compiles dependencies; later runs are fast.
 - **Demo patch** lives in `src/demo/`; `src/main.rs` only wires graph + TUI.
 
+### Prebuilt Linux binary (GitHub Actions)
+
+On each successful CI run on `main` / `master` (and on pull requests), the workflow uploads **`trem-linux-x86_64`** as a workflow artifact:
+
+1. Open the repo on GitHub → **Actions** → pick the run → **Artifacts** at the bottom.
+2. Download and unzip; you get `trem` plus `README.txt`.
+3. **Ubuntu / WSL2 (Ubuntu):** install runtime ALSA, then run:
+
+   ```bash
+   sudo apt install -y libasound2
+   chmod +x trem
+   ./trem
+   ```
+
+   The binary is **x86_64** glibc (same family as Ubuntu on WSL2). Very old distros might need a newer glibc or a local `cargo build` instead.
+
 ### Run tests (optional)
 
 ```bash

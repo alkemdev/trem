@@ -31,3 +31,27 @@ jobs:
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
+
+      - name: cargo build --release
+        run: cargo build --release
+
+      - name: Package Linux binary for download
+        run: |
+          mkdir -p artifact
+          cp target/release/trem artifact/
+          strip artifact/trem
+          chmod +x artifact/trem
+          printf '%s\n' \
+            'trem — Linux x86_64 binary built on Ubuntu (GitHub Actions).' \
+            '' \
+            'Run: chmod +x trem && ./trem' \
+            '' \
+            'Runtime: install libasound2 on Ubuntu/WSL, e.g. sudo apt install -y libasound2' \
+            'Docs: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/install.md' \
+            > artifact/README.txt
+
+      - name: Upload Linux binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trem-linux-x86_64
+          path: artifact/
