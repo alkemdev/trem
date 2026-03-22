@@ -10,8 +10,9 @@
 //! | Global | Tab, Space, `?`, arrows, `+-` BPM, `[]` oct, `` ` `` pane, `{}` swing, Shift+arrows fine |
 //! | Global Ctrl | C/Q quit, S save, O load, Z undo, Y redo |
 //! | Help | Only Esc / `?` close; Space swallowed |
-//! | Sequencer NAV | e edit, hjkl move, q quit, u undo |
+//! | Sequencer NAV | e grid edit, Enter piano roll, hjkl move, q quit, u undo |
 //! | Sequencer EDIT | Esc nav, z note, a gate, Del clear |
+//! | SEQ NAV | Enter opens roll; e edit; Esc or Enter back to nav from edit |
 //! | Graph NAV | e edit, hjkl, Enter inner, Esc up when nested |
 //! | Graph EDIT | Esc nav; arrows from global (not graph_keys) |
 
@@ -207,6 +208,10 @@ fn sequencer_normal_nav_keys() {
         Some(Action::ToggleEdit)
     );
     assert_eq!(
+        handle_key(press(KeyCode::Enter, KeyModifiers::NONE), &c),
+        Some(Action::OpenPatternRoll)
+    );
+    assert_eq!(
         handle_key(press(KeyCode::Char('h'), KeyModifiers::NONE), &c),
         Some(Action::MoveLeft)
     );
@@ -238,6 +243,16 @@ fn sequencer_edit_esc_returns_nav() {
     let c = ctx(Editor::Pattern, &mode, false, false);
     assert_eq!(
         handle_key(press(KeyCode::Esc, KeyModifiers::NONE), &c),
+        Some(Action::ToggleEdit)
+    );
+}
+
+#[test]
+fn sequencer_edit_enter_returns_nav() {
+    let mode = Mode::Edit;
+    let c = ctx(Editor::Pattern, &mode, false, false);
+    assert_eq!(
+        handle_key(press(KeyCode::Enter, KeyModifiers::NONE), &c),
         Some(Action::ToggleEdit)
     );
 }

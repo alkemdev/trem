@@ -43,7 +43,8 @@ fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static st
         (Editor::Pattern, Mode::Normal) => vec![
             ("TAB", "editor"),
             ("?", "full keys"),
-            ("e", "edit"),
+            ("⏎", "roll · voice"),
+            ("e", "grid edit"),
             ("SPC", "play/pause"),
             ("\u{2190}\u{2192}\u{2191}\u{2193}", "move"),
             ("+/-", "bpm"),
@@ -54,7 +55,7 @@ fn context_hints(editor: &Editor, mode: &Mode) -> Vec<(&'static str, &'static st
             ("q", "quit"),
         ],
         (Editor::Pattern, Mode::Edit) => vec![
-            ("ESC", "nav"),
+            ("ESC/⏎", "nav"),
             ("?", "full keys"),
             ("z-m", "notes"),
             ("DEL", "clear"),

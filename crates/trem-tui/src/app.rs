@@ -19,8 +19,10 @@ use trem::math::Rational;
 use trem::pitch::Pitch;
 use trem_cpal::{Bridge, Command, Notification, ScopeFocus};
 
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -114,6 +116,8 @@ pub struct App {
     /// Pregenerated inner-graph snapshots from the host (`Graph::nested_ui_snapshots`), keyed by
     /// the same path the UI uses after [`Self::enter_nested_graph`] (e.g. `[lead_id]`).
     nested_graph_snapshots: HashMap<Vec<u32>, GraphSnapshot>,
+    /// Fullscreen MIDI piano roll from SEQ (**Enter** in navigate mode).
+    pattern_roll: Option<crate::pattern_roll::PatternRoll>,
 }
 
 /// Saved state when diving into a nested graph node.
@@ -197,7 +201,47 @@ impl App {
             graph_has_children: Vec::new(),
             graph_breadcrumb: Vec::new(),
             nested_graph_snapshots: HashMap::new(),
+            pattern_roll: None,
         }
+    }
+
+    fn pattern_roll_transport_line(&self) -> Line<'static> {
+        Line::from(vec![
+            format!("{:>4.0} BPM", self.bpm).into(),
+            "  ".into(),
+            Span::styled(
+                if self.playing { "PLAY " } else { "PAUSE" },
+                if self.playing {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                },
+            ),
+            format!("  beat {:.2}", self.beat_position).into(),
+        ])
+    }
+
+    fn close_pattern_roll_apply(&mut self) {
+        let Some(roll) = self.pattern_roll.take() else {
+            return;
+        };
+        if let Err(e) = roll.validate_for_apply() {
+            eprintln!("trem: pattern roll invalid ({e}); fix note times before closing.");
+            self.pattern_roll = Some(roll);
+            return;
+        }
+        let col = roll.grid_column;
+        self.push_undo();
+        crate::pattern_roll::apply_clip_to_grid_column(
+            &roll.clip,
+            &mut self.grid,
+            &self.scale,
+            440.0,
+            &self.voice_ids,
+            col,
+        );
+        drop(roll);
+        self.send_pattern();
     }
 
     /// Attaches node/edge/param snapshots for the graph editor (from the host graph).
@@ -337,6 +381,36 @@ impl App {
                     }
                     Mode::Edit => Mode::Normal,
                 };
+            }
+            Action::OpenPatternRoll => {
+                if self.editor != Editor::Pattern
+                    || self.mode != Mode::Normal
+                    || self.pattern_roll.is_some()
+                {
+                    return;
+                }
+                let col = self.cursor_col.min(self.grid.columns.saturating_sub(1));
+                let lane_voice = self.voice_ids.get(col as usize).copied().unwrap_or(col);
+                let clip = crate::pattern_roll::clip_from_grid_column(
+                    &self.grid,
+                    &self.scale,
+                    440.0,
+                    self.voice_ids.as_slice(),
+                    col,
+                );
+                let mut roll = crate::pattern_roll::PatternRoll::new(
+                    clip,
+                    col,
+                    self.grid.rows,
+                    lane_voice,
+                    self.grid.clone(),
+                    self.scale.clone(),
+                    self.voice_ids.clone(),
+                    440.0,
+                    self.swing,
+                );
+                roll.push_preview(&mut self.bridge, self.bpm, 44100.0);
+                self.pattern_roll = Some(roll);
             }
             Action::TogglePlay => {
                 self.playing = !self.playing;
@@ -952,6 +1026,22 @@ impl App {
     pub fn draw(&mut self, frame: &mut ratatui::Frame) {
         self.refresh_host_stats();
 
+        let pattern_roll_transport = self.pattern_roll_transport_line();
+        if let Some(roll) = &mut self.pattern_roll {
+            let loop_beats = self.grid.rows as f64;
+            roll.draw(
+                frame,
+                frame.area(),
+                pattern_roll_transport,
+                self.beat_position,
+                loop_beats,
+            );
+            if self.help_open {
+                frame.render_widget(HelpOverlay, frame.area());
+            }
+            return;
+        }
+
         let bottom_h = match self.editor {
             Editor::Graph => 6u16,
             Editor::Pattern => 5u16,
@@ -1164,14 +1254,49 @@ impl App {
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind != KeyEventKind::Release {
-                        let ctx = InputContext {
-                            editor: self.editor,
-                            mode: &self.mode,
-                            graph_is_nested: !self.graph_path.is_empty(),
-                            help_open: self.help_open,
-                        };
-                        if let Some(action) = input::handle_key(key, &ctx) {
-                            self.handle_action(action);
+                        if self.pattern_roll.is_some() {
+                            let ctx = InputContext {
+                                editor: self.editor,
+                                mode: &self.mode,
+                                graph_is_nested: !self.graph_path.is_empty(),
+                                help_open: self.help_open,
+                            };
+                            if self.help_open {
+                                if let Some(action) = input::handle_key(key, &ctx) {
+                                    self.handle_action(action);
+                                }
+                            } else if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                match key.code {
+                                    KeyCode::Char('c') | KeyCode::Char('q') => {
+                                        self.should_quit = true;
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                let bpm = self.bpm;
+                                let out = {
+                                    let bridge = &mut self.bridge;
+                                    let playing = &mut self.playing;
+                                    let engine = &mut self.engine_pattern_active;
+                                    self.pattern_roll.as_mut().map(|roll| {
+                                        roll.handle_key(key, bridge, bpm, 44100.0, playing, engine)
+                                    })
+                                };
+                                if out == Some(crate::pattern_roll::PatternRollOutcome::CloseApply)
+                                {
+                                    self.close_pattern_roll_apply();
+                                }
+                            }
+                        } else {
+                            let ctx = InputContext {
+                                editor: self.editor,
+                                mode: &self.mode,
+                                graph_is_nested: !self.graph_path.is_empty(),
+                                help_open: self.help_open,
+                            };
+                            if let Some(action) = input::handle_key(key, &ctx) {
+                                self.handle_action(action);
+                            }
                         }
                     }
                 }

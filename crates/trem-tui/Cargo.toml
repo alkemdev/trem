@@ -12,7 +12,9 @@ categories = ["multimedia::audio", "command-line-interface"]
 
 [dependencies]
 trem = { workspace = true, features = ["serde"] }
+trem-rung = { workspace = true }
 trem-cpal = { workspace = true }
+num-rational = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true }

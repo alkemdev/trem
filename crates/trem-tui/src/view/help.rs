@@ -91,8 +91,12 @@ impl Widget for HelpOverlay {
             Line::from(vec![]),
             head("SEQ · step grid"),
             Line::from(vec![
+                key("Enter"),
+                dim(" piano roll · this voice column (Esc apply)  "),
                 key("e"),
-                dim(" edit notes  "),
+                dim(" grid note edit"),
+            ]),
+            Line::from(vec![
                 key("arrows · hjkl"),
                 dim(" move  "),
                 key("z-m"),
@@ -145,7 +149,7 @@ impl Widget for HelpOverlay {
             Line::from(vec![]),
             head("ROADMAP"),
             Line::from(vec![
-                dim("More modal editors (piano-roll, samples, arrange, …) — see "),
+                dim("More editors (samples, arrange, …) — see "),
                 key("docs/tui-editor-roadmap.md"),
                 dim(" in the repo."),
             ]),

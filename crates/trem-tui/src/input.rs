@@ -1,6 +1,7 @@
 //! Keyboard routing for **modal editors**: pattern grid and signal graph. Each editor
 //! owns a key family; [`InputContext`] disambiguates global chords (Tab, `?`, Esc) vs
-//! nested-graph exit. Future editors: see repository `docs/tui-editor-roadmap.md`.
+//! nested-graph exit. **SEQ navigate:** **Enter** opens the fullscreen piano roll; **`e`** toggles grid note edit.
+//! Future editors: see repository `docs/tui-editor-roadmap.md`.
 //!
 //! Full bindings: **`?`** help overlay. Sidebar shows a short **popular** subset only.
 
@@ -107,6 +108,8 @@ pub enum Action {
     CycleEditor,
     /// `e` / Esc: toggle edit mode (when not in help / graph-exit).
     ToggleEdit,
+    /// SEQ navigate: **Enter** — fullscreen MIDI piano roll (apply on Esc).
+    OpenPatternRoll,
     TogglePlay,
     MoveUp,
     MoveDown,
@@ -208,6 +211,7 @@ fn pattern_keys(code: KeyCode, mode: &Mode) -> Option<Action> {
     match mode {
         Mode::Normal => match code {
             KeyCode::Char('q') => Some(Action::Quit),
+            KeyCode::Enter => Some(Action::OpenPatternRoll),
             KeyCode::Char('e') => Some(Action::ToggleEdit),
             KeyCode::Char('u') => Some(Action::Undo),
             KeyCode::Char('h') => Some(Action::MoveLeft),
@@ -217,6 +221,7 @@ fn pattern_keys(code: KeyCode, mode: &Mode) -> Option<Action> {
             _ => None,
         },
         Mode::Edit => match code {
+            KeyCode::Enter => Some(Action::ToggleEdit),
             KeyCode::Delete | KeyCode::Backspace => Some(Action::DeleteNote),
             KeyCode::Char('z') => Some(Action::NoteInput(0)),
             KeyCode::Char('s') => Some(Action::NoteInput(1)),

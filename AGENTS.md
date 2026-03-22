@@ -28,7 +28,9 @@ cargo test -p trem-rung --features midi  # Rung MIDI import tests (also run in C
 cargo test --workspace --doc     # run doc-test examples
 cargo bench -p trem -- --test    # compile-check benchmarks
 cargo doc --workspace --no-deps  # build documentation
-cargo run                        # launch the TUI demo
+cargo run                        # launch the TUI demo (default; same as `trem tui`)
+cargo run -- rung import file.mid   # MIDI → Rung JSON
+cargo run -- rung edit clip.rung.json  # Rung piano-roll editor (TTY)
 cargo run -p trem --example <name>  # run a library example
 ```
 
@@ -93,6 +95,8 @@ of what was delivered. This directory is the project's decision log.
 - `crates/trem-tui/src/view/` -- Widget implementations for each TUI pane.
 - `docs/tui-testing.md` -- TUI testing: `tests/keyboard_flows.rs`, `tests/widget_labels.rs`,
   `cargo test -p trem-tui`, optional `expect scripts/tui-smoke.expect` on a real terminal.
+- `docs/modes/` -- User stories and input specs for fullscreen **editing modes** (pattern roll first);
+  `docs/modes/principles.md` is the shared contract for future modes.
 - `crates/trem-rung/` -- Rung interchange format (`RungFile`, `Clip`, MIDI import behind `--features midi`).
 - `src/main.rs` -- Demo project: graph construction, pattern setup, TUI launch.
 

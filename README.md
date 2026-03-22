@@ -2,7 +2,7 @@
 
 A mathematical music engine in Rust.
 
-![trem logo showing TERM rearranged to TREM](docs/trem-logo-cropped.png)
+![trem logo showing TERM rearranged to TREM](docs/trem-logo-cropped.webp)
 
 **trem** is a library-first DAW built on exact arithmetic, xenharmonic pitch
 systems, recursive temporal trees, and typed audio graphs. The terminal UI is a
@@ -12,7 +12,7 @@ first-class citizen.
 
 1. **Install [Rust](https://rustup.rs/)** (stable toolchain).
 2. **Clone** this repo and **`cd`** into it.
-3. Run:
+3. Run the demo TUI:
 
 ```bash
 cargo run
@@ -94,10 +94,23 @@ velocity, meta) for sharing between tools and building transforms. Optional
 ## Quick start
 
 ```bash
-cargo run
+cargo run                       # terminal synth / pattern demo (default)
+cargo run -- rung import tune.mid   # MIDI → tune.rung.json
+cargo run -- rung edit tune.rung.json   # piano-roll + synth preview (TTY + audio)
 ```
 
-Same as **Try it** above; full prerequisites on **[docs/install.md](docs/install.md)**.
+**Bundled examples:** **`assets/`** includes *Well-Tempered Clavier* MIDI — **John
+Sankey** (full Book I + partial Book II via [jsbach.net](http://www.jsbach.net/midi/midi_johnsankey.html))
+plus **Mutopia** fragments — and a tiny generated WAV under **`assets/samples/`**.
+See **`assets/midi/wtc/README.md`**. Example import (Book I, pair 1 — prelude+fugue in one file):
+
+```bash
+cargo run -- rung import assets/midi/wtc/sankey/bwv846.mid
+```
+
+Re-download sources: `python3 scripts/fetch_wtc_example_midis.py`
+
+Full prerequisites and import details: **[docs/install.md](docs/install.md)**.
 
 The default graph and pattern live in **`src/demo/`** (`levels.rs` for gains/FX, `graph.rs` for routing, `pattern.rs` for the grid). `src/main.rs` is thin I/O glue.
 
@@ -152,7 +165,20 @@ The transport bar shows beat position with a **φ-weighted** phase glyph for a s
 | `←` `→`       | Move step cursor    |
 | `↑` `↓`       | Move voice cursor   |
 | `h` `l` `k` `j` | Vim-style move   |
-| `e`           | Enter edit mode     |
+| `Enter`       | Fullscreen **piano roll** for the **selected voice column** only; `Esc` writes that column back and closes |
+| `e`           | Enter grid edit mode (paint notes) |
+
+### Pattern roll (from SEQ navigate)
+
+Full **input story & v2 roadmap:** `docs/modes/pattern-roll.md`. Shared **mode principles:** `docs/modes/principles.md`.
+
+| Key     | Action |
+|---------|--------|
+| `Esc`   | Validate, write **this voice column** back to the step grid (others unchanged), close |
+| `Space` | Play / pause (preview = full pattern: other columns from snapshot at open, this column from roll; includes swing) |
+| `s`     | Re-sync preview audio only |
+| (playhead) | **Red ▼** on the time ruler + tinted column; tracks global transport beat, wrapped to pattern length (grid rows as beats) |
+| (see roll footer) | Move/zoom, edit note time/pitch/velocity/voice — same family as `rung edit` |
 
 ### Pattern view — Edit mode
 
@@ -166,7 +192,7 @@ The transport bar shows beat position with a **φ-weighted** phase glyph for a s
 | `r`           | Randomize voice     |
 | `t`           | Reverse voice       |
 | `,` / `.`     | Shift voice left / right |
-| `Esc`         | Back to navigate    |
+| `Esc` / `Enter` | Back to navigate  |
 
 ### Graph view — Navigate mode
 
