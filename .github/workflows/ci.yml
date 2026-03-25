@@ -29,8 +29,14 @@ jobs:
       - name: cargo test --workspace
         run: cargo test --workspace
 
-      - name: cargo test -p trem-rung --features midi
-        run: cargo test -p trem-rung --features midi
+      - name: cargo check trem-dsp export example
+        run: cargo check -p trem-dsp --features export --example render_to_file
+
+      - name: cargo check trem extreme_sidechain (wav + preview)
+        run: cargo check -p trem --features wav --example extreme_sidechain
+
+      - name: cargo test -p trem --features rung,midi
+        run: cargo test -p trem --features rung,midi
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check

@@ -1,0 +1,17 @@
+[package]
+name = "trem-rta"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Real-time audio playback host for trem (cpal + rtrb)"
+repository = "https://github.com/alkemdev/trem"
+readme = "../../README.md"
+documentation = "https://docs.rs/trem-rta"
+keywords = ["audio", "cpal", "realtime"]
+categories = ["multimedia::audio"]
+
+[dependencies]
+trem = { workspace = true }
+cpal = { workspace = true }
+rtrb = { workspace = true }
+anyhow = { workspace = true }

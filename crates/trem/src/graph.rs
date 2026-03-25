@@ -1,6 +1,30 @@
-//! Audio graph: [`Processor`] nodes, routing, block processing, and parameter introspection.
+//! Audio graph: [`Graph`], [`Node`] implementations, routing, and parameter introspection.
 //!
-//! [`Graph`] sorts nodes topologically, sums incoming edges per input port, and reuses a buffer pool per block.
+//! # Terminology
+//!
+//! - **[`Node`]** — Trait for a vertex: [`Node::prepare`] (allocation / validation outside the hot
+//!   path), then `process` with [`ProcessContext`]; optional parameters. A [`Graph`] is also a
+//!   [`Node`] (composite).
+//! - **Graph block size** — Upper bound on `ProcessContext::frames` (buffer capacity per callback).
+//!   This is “how many samples per `process` call,” not to be confused with [`NodeId`] or the
+//!   [`Node`] trait.
+//! - **[`Sig`]** — Port counts (inputs × outputs) for a [`Node`]; used to validate wiring.
+//!
+//! # Building graphs
+//!
+//! - **[`Graph::new`]** / [`Graph::labeled`] — Empty graph; add [`Node`]s with [`Graph::add_node`]
+//!   and wire with [`Graph::connect`].
+//! - **[`Graph::from_chain`]** / [`Graph::chain`] — Sequential chain `a → b → c` with automatic
+//!   port hookup (signatures must align).
+//! - **[`Graph::from_parallel`]** / [`Graph::parallel`] — Side‑by‑side [`Node`]s; inputs and
+//!   outputs concatenate in order.
+//! - **[`Graph::chain_from_iter`]** — Like [`Graph::chain`], but collects any iterator of
+//!   `Box<dyn Node>` (e.g. `vec![a, b, c]`).
+//! - **[`Graph::pipeline`]** — Fluent builder: [`PipelineBuilder::input`] then repeated
+//!   [`PipelineBuilder::then`].
+//!
+//! [`Graph`] sorts nodes topologically, sums incoming edges per input port, and reuses a buffer
+//! pool each processing pass.
 
 use crate::event::TimedEvent;
 use std::collections::HashMap;
@@ -10,7 +34,39 @@ pub type NodeId = u32;
 /// Audio input or output port index on a node.
 pub type PortIdx = u16;
 
-/// Port signature: the I/O shape of a processor as a typed pair.
+/// Upper bounds and sample rate for [`Node::prepare`] (delay lines, tables, etc.).
+///
+/// Call **outside** the per-block hot path when topology or [`Graph`] block capacity changes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrepareEnv {
+    /// Maximum `ProcessContext::frames` the host will pass (graph buffer capacity).
+    pub max_block_frames: usize,
+    pub sample_rate: f64,
+}
+
+impl PrepareEnv {
+    /// Builds the environment used by [`Graph::run`] after (re)allocation.
+    pub fn new(max_block_frames: usize, sample_rate: f64) -> Self {
+        Self {
+            max_block_frames,
+            sample_rate,
+        }
+    }
+}
+
+/// [`Node::prepare`] failed (invalid rate, size overflow, unsupported configuration).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrepareError(pub String);
+
+impl std::fmt::Display for PrepareError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for PrepareError {}
+
+/// Port signature: the I/O shape of a [`Node`] as a typed pair.
 ///
 /// Composition laws (symmetric monoidal category over signal bundles):
 ///   - **chain**:    `Sig(a,b) ; Sig(b,c) = Sig(a,c)`  (requires matching width)
@@ -83,25 +139,25 @@ impl Sig {
         }
     }
 
-    /// True when the processor has both inputs and outputs (effect/filter).
+    /// True when the node has both inputs and outputs (effect/filter).
     pub fn is_effect(&self) -> bool {
         self.inputs > 0 && self.outputs > 0
     }
 
-    /// True when the processor generates signal with no audio input (oscillator, noise, etc.).
+    /// True when the node generates signal with no audio input (oscillator, noise, etc.).
     pub fn is_source(&self) -> bool {
         self.inputs == 0 && self.outputs > 0
     }
 
-    /// True when the processor consumes signal with no audio output (analyzer, meter, etc.).
+    /// True when the node consumes signal with no audio output (analyzer, meter, etc.).
     pub fn is_sink(&self) -> bool {
         self.inputs > 0 && self.outputs == 0
     }
 }
 
-/// Metadata about a processor's ports.
+/// Metadata about a [`Node`]'s ports and display name.
 #[derive(Clone, Debug)]
-pub struct ProcessorInfo {
+pub struct NodeInfo {
     /// Short name for UIs and debugging.
     pub name: &'static str,
     /// Port signature (input/output counts).
@@ -113,18 +169,18 @@ pub struct ProcessorInfo {
 /// Describes a single automatable parameter.
 ///
 /// This is the self-describing interface that lets any UI (TUI, web, etc.)
-/// enumerate and control a processor's parameters without hardcoding.
+/// enumerate and control a node's parameters without hardcoding.
 #[derive(Clone, Debug)]
 pub struct ParamDescriptor {
-    /// Opaque id used with [`Processor::get_param`] / [`Processor::set_param`].
+    /// Opaque id used with [`Node::get_param`] / [`Node::set_param`].
     pub id: u32,
     /// Human-readable label for automation UIs.
     pub name: &'static str,
-    /// Minimum allowed value (inclusive unless a processor documents otherwise).
+    /// Minimum allowed value (inclusive unless a node documents otherwise).
     pub min: f64,
     /// Maximum allowed value (inclusive unless documented otherwise).
     pub max: f64,
-    /// Value after [`Processor::reset`] or construction.
+    /// Value after [`Node::reset`] or construction.
     pub default: f64,
     /// How to display and interpret the number (e.g. dB vs linear gain).
     pub unit: ParamUnit,
@@ -141,7 +197,7 @@ pub struct ParamDescriptor {
 
 /// A named group of related parameters with a visualization hint.
 ///
-/// Processors declare groups via [`Processor::param_groups`]; the group `id`
+/// Nodes declare groups via [`Node::param_groups`]; the group `id`
 /// matches the `group` field on individual [`ParamDescriptor`]s. UIs use the
 /// [`GroupHint`] to decide what kind of preview widget to render.
 #[derive(Clone, Debug)]
@@ -218,28 +274,40 @@ bitflags::bitflags! {
     }
 }
 
-/// Context passed to a processor for each processing block.
+/// Context for one audio callback: input/output buffers, frame count, sample rate, and events.
 pub struct ProcessContext<'a> {
     /// One slice per input port, each `frames` long (summed upstream by the graph).
     pub inputs: &'a [&'a [f32]],
-    /// One buffer per output port; processors write `frames` samples from the start.
+    /// One buffer per output port; nodes write `frames` samples from the start.
     pub outputs: &'a mut [Vec<f32>],
     /// Samples in this callback (≤ graph block size).
     pub frames: usize,
     /// Host sample rate in Hz.
     pub sample_rate: f64,
-    /// Block-relative [`TimedEvent`]s (offsets in `[0, frames)`).
+    /// Callback-relative [`TimedEvent`]s (offsets in `[0, frames)`).
     pub events: &'a [TimedEvent],
 }
 
-/// Trait for audio processing nodes.
+/// A node in a [`Graph`]: realtime audio chunk processing plus optional parameter introspection.
 ///
-/// `params` / `get_param` / `set_param` form the self-describing interface
-/// that any UI can enumerate and drive without coupling to the concrete type.
-pub trait Processor: Send {
-    fn info(&self) -> ProcessorInfo;
+/// Implement this for oscillators, effects, utilities, or wrap a nested [`Graph`] (which already
+/// implements `Node`). [`NodeInfo`] describes port counts; [`ParamDescriptor`] / [`ParamGroup`]
+/// power generic UIs and automation.
+///
+/// `params` / `get_param` / `set_param` form the self-describing interface that any UI can
+/// enumerate without coupling to the concrete type.
+pub trait Node: Send {
+    fn info(&self) -> NodeInfo;
     fn process(&mut self, ctx: &mut ProcessContext);
     fn reset(&mut self);
+
+    /// Allocate or resize internal state when the graph block capacity or sample rate changes.
+    ///
+    /// The host calls this via [`Graph::run`] after topology rebuilds; override for delay lines,
+    /// wavetables, or validation. Default: success.
+    fn prepare(&mut self, _env: &PrepareEnv) -> Result<(), PrepareError> {
+        Ok(())
+    }
 
     /// Enumerate all controllable parameters.
     fn params(&self) -> Vec<ParamDescriptor> {
@@ -259,7 +327,7 @@ pub trait Processor: Send {
     /// Write a parameter value by id.
     fn set_param(&mut self, _id: u32, _value: f64) {}
 
-    /// If this processor contains an inner [`Graph`], return a reference for introspection.
+    /// If this node contains an inner [`Graph`], return a reference for introspection.
     fn inner_graph(&self) -> Option<&Graph> {
         None
     }
@@ -290,9 +358,9 @@ impl GraphInput {
     }
 }
 
-impl Processor for GraphInput {
-    fn info(&self) -> ProcessorInfo {
-        ProcessorInfo {
+impl Node for GraphInput {
+    fn info(&self) -> NodeInfo {
+        NodeInfo {
             name: "input",
             sig: Sig {
                 inputs: 0,
@@ -311,9 +379,9 @@ struct PassThrough {
     channels: u16,
 }
 
-impl Processor for PassThrough {
-    fn info(&self) -> ProcessorInfo {
-        ProcessorInfo {
+impl Node for PassThrough {
+    fn info(&self) -> NodeInfo {
+        NodeInfo {
             name: "bus",
             sig: Sig {
                 inputs: self.channels,
@@ -388,13 +456,12 @@ impl BufferPool {
 
 /// Audio processing directed acyclic graph.
 ///
-/// Nodes are processors, edges route audio between ports.
-/// Evaluation follows topological order with pre-allocated buffers.
+/// Nodes are [`Node`] trait objects; edges route audio between ports. Evaluation follows
+/// topological order with a reusable buffer pool.
 ///
-/// `Graph` itself implements [`Processor`], enabling recursive nesting:
-/// a Graph can be inserted as a node in a parent Graph.
+/// `Graph` itself implements [`Node`], so you can nest graphs as single nodes in a parent graph.
 pub struct Graph {
-    nodes: Vec<Option<Box<dyn Processor>>>,
+    nodes: Vec<Option<Box<dyn Node>>>,
     edges: Vec<Edge>,
     topo_order: Vec<NodeId>,
     buffer_offsets: Vec<usize>,
@@ -411,9 +478,14 @@ pub struct Graph {
     groups: Vec<ParamGroup>,
     next_param_id: u32,
     next_group_id: u32,
-    /// Temporary storage for parent inputs when used as a Processor.
+    /// Temporary storage for parent inputs when used as a Node.
     /// `run()` consumes this after zeroing its buffer pool.
     pending_inputs: Vec<Vec<f32>>,
+    /// Per-node per-input-port mix buffers (length `block_size`); reused every [`Graph::run`].
+    audio_input_mix: Vec<Vec<Vec<f32>>>,
+    needs_prepare: bool,
+    last_prepared_sr: f64,
+    last_prepared_block: usize,
 }
 
 impl Graph {
@@ -422,16 +494,47 @@ impl Graph {
     /// # Examples
     ///
     /// ```
-    /// use trem::graph::Graph;
-    /// use trem::dsp::{Oscillator, Adsr, Gain, Waveform};
+    /// use trem::graph::{Graph, ProcessContext, Node, NodeInfo, Sig};
+    ///
+    /// struct Src;
+    /// impl Node for Src {
+    ///     fn info(&self) -> NodeInfo {
+    ///         NodeInfo {
+    ///             name: "src",
+    ///             sig: Sig::SOURCE1,
+    ///             description: "",
+    ///         }
+    ///     }
+    ///     fn process(&mut self, ctx: &mut ProcessContext) {
+    ///         for i in 0..ctx.frames {
+    ///             ctx.outputs[0][i] = 0.0;
+    ///         }
+    ///     }
+    ///     fn reset(&mut self) {}
+    /// }
+    ///
+    /// struct Fwd;
+    /// impl Node for Fwd {
+    ///     fn info(&self) -> NodeInfo {
+    ///         NodeInfo {
+    ///             name: "fwd",
+    ///             sig: Sig::MONO,
+    ///             description: "",
+    ///         }
+    ///     }
+    ///     fn process(&mut self, ctx: &mut ProcessContext) {
+    ///         for i in 0..ctx.frames {
+    ///             ctx.outputs[0][i] = ctx.inputs[0][i];
+    ///         }
+    ///     }
+    ///     fn reset(&mut self) {}
+    /// }
     ///
     /// let mut g = Graph::new(512);
-    /// let osc = g.add_node(Box::new(Oscillator::new(Waveform::Saw)));
-    /// let env = g.add_node(Box::new(Adsr::new(0.01, 0.1, 0.5, 0.2)));
-    /// let gain = g.add_node(Box::new(Gain::new(0.5)));
-    /// g.connect(osc, 0, env, 0);
-    /// g.connect(env, 0, gain, 0);
-    /// assert_eq!(g.node_count(), 3);
+    /// let a = g.add_node(Box::new(Src));
+    /// let b = g.add_node(Box::new(Fwd));
+    /// g.connect(a, 0, b, 0);
+    /// assert_eq!(g.node_count(), 2);
     /// ```
     pub fn new(block_size: usize) -> Self {
         Self {
@@ -452,17 +555,21 @@ impl Graph {
             next_param_id: 0,
             next_group_id: 0,
             pending_inputs: Vec::new(),
+            audio_input_mix: Vec::new(),
+            needs_prepare: true,
+            last_prepared_sr: f64::NAN,
+            last_prepared_block: 0,
         }
     }
 
-    /// Construct with a label (used as `ProcessorInfo::name` when this Graph acts as a Processor).
+    /// Construct with a label (used as `NodeInfo::name` when this Graph acts as a Node).
     pub fn labeled(block_size: usize, label: &'static str) -> Self {
         let mut g = Self::new(block_size);
         g.label = label;
         g
     }
 
-    /// The port signature of this graph when used as a processor.
+    /// The port signature of this graph when used as a [`Node`].
     pub fn sig(&self) -> Sig {
         Sig {
             inputs: self.num_inputs,
@@ -470,8 +577,13 @@ impl Graph {
         }
     }
 
+    /// Upper bound on `frames` passed to [`Graph::run`] (buffer capacity after the last rebuild).
+    pub fn block_capacity(&self) -> usize {
+        self.block_size
+    }
+
     /// Designate a [`GraphInput`] node as the entry point for parent audio.
-    /// When this Graph is processed as a Processor, parent inputs are copied
+    /// When this Graph is processed as a Node, parent inputs are copied
     /// into this node's output buffers before `run()`.
     pub fn set_input(&mut self, node: NodeId, num_inputs: u16) {
         self.input_node = Some(node);
@@ -537,10 +649,10 @@ impl Graph {
         ext_id
     }
 
-    /// Add a processor node, returns its NodeId.
-    pub fn add_node(&mut self, processor: Box<dyn Processor>) -> NodeId {
+    /// Add a [`Node`]; returns its [`NodeId`].
+    pub fn add_node(&mut self, node: Box<dyn Node>) -> NodeId {
         let id = self.nodes.len() as NodeId;
-        self.nodes.push(Some(processor));
+        self.nodes.push(Some(node));
         self.dirty = true;
         id
     }
@@ -562,7 +674,7 @@ impl Graph {
         self.dirty = true;
     }
 
-    /// Number of live (non-removed) processor slots.
+    /// Number of live (non-removed) node slots.
     pub fn node_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.is_some()).count()
     }
@@ -608,14 +720,59 @@ impl Graph {
 
         self.buffer_pool
             .resize(total_buffers.max(1), self.block_size);
+
+        self.audio_input_mix.clear();
+        self.audio_input_mix.reserve(n);
+        for i in 0..n {
+            let ins = self.nodes[i]
+                .as_ref()
+                .map(|p| p.info().sig.inputs as usize)
+                .unwrap_or(0);
+            self.audio_input_mix
+                .push(vec![vec![0.0f32; self.block_size]; ins]);
+        }
+
         self.dirty = false;
+        self.needs_prepare = true;
+    }
+
+    /// Runs [`Node::prepare`] on every node when topology, block capacity, or sample rate changed.
+    pub fn prepare(&mut self, env: &PrepareEnv) -> Result<(), PrepareError> {
+        let local = PrepareEnv {
+            max_block_frames: self.block_size,
+            sample_rate: env.sample_rate,
+        };
+        for slot in &mut self.nodes {
+            if let Some(n) = slot.as_mut() {
+                n.prepare(&local)?;
+            }
+        }
+        self.needs_prepare = false;
+        self.last_prepared_sr = env.sample_rate;
+        self.last_prepared_block = self.block_size;
+        Ok(())
+    }
+
+    fn prepare_if_needed(&mut self, sample_rate: f64) -> Result<(), PrepareError> {
+        let stale_sr =
+            (self.last_prepared_sr - sample_rate).abs() > 1e-9 && !self.last_prepared_sr.is_nan();
+        if self.needs_prepare || stale_sr || self.last_prepared_block != self.block_size {
+            let env = PrepareEnv::new(self.block_size, sample_rate);
+            self.prepare(&env)?;
+        }
+        Ok(())
     }
 
     /// Runs the graph in topological order for `frames` samples, mixing edges
     /// into inputs and passing `events` to each node. This is the standalone
     /// entry point used by the audio driver. When this Graph is used as a
-    /// [`Processor`] inside another Graph, `Processor::process` delegates here.
-    pub fn run(&mut self, frames: usize, sample_rate: f64, events: &[TimedEvent]) {
+    /// [`Node`] inside another Graph, `Node::process` delegates here.
+    pub fn run(
+        &mut self,
+        frames: usize,
+        sample_rate: f64,
+        events: &[TimedEvent],
+    ) -> Result<(), PrepareError> {
         if self.dirty {
             self.rebuild();
         }
@@ -624,6 +781,8 @@ impl Graph {
             self.dirty = true;
             self.rebuild();
         }
+
+        self.prepare_if_needed(sample_rate)?;
 
         self.buffer_pool.zero_all();
 
@@ -656,23 +815,29 @@ impl Graph {
             let num_inputs = sig.inputs as usize;
             let num_outputs = sig.outputs as usize;
 
-            // Build temporary input buffers by mixing connected sources
-            let mut input_bufs: Vec<Vec<f32>> = vec![vec![0.0; frames]; num_inputs];
-            for edge in &self.edges {
-                if edge.dst_node == node_id && (edge.dst_port as usize) < num_inputs {
-                    let src_buf_idx =
-                        self.buffer_offsets[edge.src_node as usize] + edge.src_port as usize;
-                    let src = self.buffer_pool.get(src_buf_idx);
-                    let dst = &mut input_bufs[edge.dst_port as usize];
-                    for i in 0..frames {
-                        dst[i] += src[i];
+            {
+                let input_mix = &mut self.audio_input_mix[ni];
+                for buf in input_mix.iter_mut() {
+                    buf[..frames].fill(0.0);
+                }
+                for edge in &self.edges {
+                    if edge.dst_node == node_id && (edge.dst_port as usize) < num_inputs {
+                        let src_buf_idx =
+                            self.buffer_offsets[edge.src_node as usize] + edge.src_port as usize;
+                        let src = self.buffer_pool.get(src_buf_idx);
+                        let dst = &mut input_mix[edge.dst_port as usize];
+                        for i in 0..frames {
+                            dst[i] += src[i];
+                        }
                     }
                 }
             }
 
-            let input_refs: Vec<&[f32]> = input_bufs.iter().map(|b| b.as_slice()).collect();
+            let input_refs: Vec<&[f32]> = self.audio_input_mix[ni]
+                .iter()
+                .map(|b| &b[..frames])
+                .collect();
 
-            // Prepare output buffers — take from pool, ensure capacity, zero the working region
             let out_offset = self.buffer_offsets[ni];
             let mut output_bufs: Vec<Vec<f32>> = (0..num_outputs)
                 .map(|p| {
@@ -699,11 +864,12 @@ impl Graph {
                 }
             }
 
-            // Write outputs back to pool
             for (p, buf) in output_bufs.into_iter().enumerate() {
                 *self.buffer_pool.get_mut(out_offset + p) = buf;
             }
         }
+
+        Ok(())
     }
 
     /// Slice of the last [`Graph::process`] output for `node`/`port` (length ≥ last `frames`; only first `frames` are valid).
@@ -773,7 +939,7 @@ impl Graph {
         }
     }
 
-    /// Calls [`Processor::reset`] on every node (e.g. clear oscillator phase, envelopes).
+    /// Calls [`Node::reset`] on every node (e.g. clear oscillator phase, envelopes).
     pub fn reset(&mut self) {
         for node in &mut self.nodes {
             if let Some(ref mut p) = node {
@@ -793,7 +959,7 @@ impl Graph {
         (nodes, self.edges.clone())
     }
 
-    /// Delegates to [`Processor::params`]; unknown or empty slots return an empty vec.
+    /// Delegates to [`Node::params`]; unknown or empty slots return an empty vec.
     pub fn node_params(&self, node: NodeId) -> Vec<ParamDescriptor> {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.params(),
@@ -801,7 +967,7 @@ impl Graph {
         }
     }
 
-    /// Delegates to [`Processor::param_groups`]; unknown or empty slots return an empty vec.
+    /// Delegates to [`Node::param_groups`]; unknown or empty slots return an empty vec.
     pub fn node_param_groups(&self, node: NodeId) -> Vec<ParamGroup> {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.param_groups(),
@@ -809,7 +975,7 @@ impl Graph {
         }
     }
 
-    /// Reads [`Processor::get_param`]; missing nodes return `0.0`.
+    /// Reads [`Node::get_param`]; missing nodes return `0.0`.
     pub fn node_param_value(&self, node: NodeId, param_id: u32) -> f64 {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.get_param(param_id),
@@ -817,14 +983,14 @@ impl Graph {
         }
     }
 
-    /// Writes [`Processor::set_param`] if the node exists; otherwise no-op.
+    /// Writes [`Node::set_param`] if the node exists; otherwise no-op.
     pub fn set_node_param(&mut self, node: NodeId, param_id: u32, value: f64) {
         if let Some(Some(ref mut p)) = self.nodes.get_mut(node as usize) {
             p.set_param(param_id, value);
         }
     }
 
-    /// Returns the description string from a node's `ProcessorInfo`.
+    /// Returns the description string from a node's `NodeInfo`.
     pub fn node_description(&self, node: NodeId) -> &str {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.info().description,
@@ -852,7 +1018,7 @@ impl Graph {
             .collect()
     }
 
-    /// Check whether a node wraps an inner graph (i.e. it is a nested Graph-as-Processor).
+    /// Check whether a node wraps an inner graph (i.e. it is a nested Graph-as-Node).
     pub fn node_has_children(&self, node: NodeId) -> bool {
         match self.nodes.get(node as usize) {
             Some(Some(ref p)) => p.inner_graph().is_some(),
@@ -912,7 +1078,7 @@ impl Graph {
     /// Snapshots of every nested graph level reachable from the root, keyed by navigation path.
     ///
     /// Keys are **non-empty** paths: `[outer_id]`, `[outer_id, inner_id]`, … matching how the TUI
-    /// builds [`NodePath`] when drilling into nested processors (see `SetParam.path`).
+    /// builds [`NodePath`] when drilling into nested graphs (see `SetParam.path`).
     pub fn nested_ui_snapshots(&self) -> HashMap<Vec<NodeId>, GraphSnapshot> {
         let mut out = HashMap::new();
         let root = self.snapshot();
@@ -968,18 +1134,20 @@ impl Graph {
 
     // === Composition combinators ===
 
-    /// Sequential composition: wire processors `a -> b -> c -> ...`.
+    /// Sequential composition: wire nodes `a → b → c → …`.
     ///
-    /// Each processor's outputs must match the next's inputs (validated via [`Sig::chain`]).
-    /// The resulting Graph has the first processor's inputs and the last's outputs.
+    /// Each node's outputs must match the next's inputs (validated via [`Sig::chain`]).
+    /// The resulting graph has the first node's inputs and the last's outputs.
+    ///
+    /// See also [`Graph::from_chain`] and [`Graph::chain_from_iter`].
     pub fn chain(
         label: &'static str,
         block_size: usize,
-        procs: Vec<Box<dyn Processor>>,
+        nodes: Vec<Box<dyn Node>>,
     ) -> Result<Self, SigMismatch> {
-        assert!(!procs.is_empty(), "chain requires at least one processor");
+        assert!(!nodes.is_empty(), "chain requires at least one node");
 
-        let sigs: Vec<Sig> = procs.iter().map(|p| p.info().sig).collect();
+        let sigs: Vec<Sig> = nodes.iter().map(|p| p.info().sig).collect();
         for i in 1..sigs.len() {
             sigs[i - 1].chain(sigs[i])?;
         }
@@ -993,9 +1161,9 @@ impl Graph {
             g.set_input(inp, first_inputs);
         }
 
-        let mut node_ids: Vec<NodeId> = Vec::with_capacity(procs.len());
-        for p in procs {
-            node_ids.push(g.add_node(p));
+        let mut node_ids: Vec<NodeId> = Vec::with_capacity(nodes.len());
+        for n in nodes {
+            node_ids.push(g.add_node(n));
         }
 
         if first_inputs > 0 {
@@ -1017,21 +1185,37 @@ impl Graph {
         Ok(g)
     }
 
-    /// Parallel composition: processors run independently, I/O counts sum.
-    ///
-    /// When used as a [`Processor`], parent inputs are split across children in order
-    /// and outputs are concatenated.
-    pub fn parallel(
+    /// Same as [`Graph::chain`]; reads naturally as “graph from a chain of nodes.”
+    pub fn from_chain(
         label: &'static str,
         block_size: usize,
-        procs: Vec<Box<dyn Processor>>,
-    ) -> Self {
-        assert!(
-            !procs.is_empty(),
-            "parallel requires at least one processor"
-        );
+        nodes: Vec<Box<dyn Node>>,
+    ) -> Result<Self, SigMismatch> {
+        Self::chain(label, block_size, nodes)
+    }
 
-        let sigs: Vec<Sig> = procs.iter().map(|p| p.info().sig).collect();
+    /// Like [`Graph::chain`], but collects any iterator (e.g. `vec![a, b, c]`).
+    pub fn chain_from_iter<I>(
+        label: &'static str,
+        block_size: usize,
+        iter: I,
+    ) -> Result<Self, SigMismatch>
+    where
+        I: IntoIterator<Item = Box<dyn Node>>,
+    {
+        Self::chain(label, block_size, iter.into_iter().collect())
+    }
+
+    /// Parallel composition: children run independently; I/O counts sum.
+    ///
+    /// When used as a [`Node`], parent inputs are split across children in order
+    /// and outputs are concatenated.
+    ///
+    /// See also [`Graph::from_parallel`].
+    pub fn parallel(label: &'static str, block_size: usize, nodes: Vec<Box<dyn Node>>) -> Self {
+        assert!(!nodes.is_empty(), "parallel requires at least one node");
+
+        let sigs: Vec<Sig> = nodes.iter().map(|p| p.info().sig).collect();
         let total_in: u16 = sigs.iter().map(|s| s.inputs).sum();
         let total_out: u16 = sigs.iter().map(|s| s.outputs).sum();
 
@@ -1052,9 +1236,9 @@ impl Graph {
         let mut in_offset: u16 = 0;
         let mut out_offset: u16 = 0;
 
-        for (idx, p) in procs.into_iter().enumerate() {
+        for (idx, n) in nodes.into_iter().enumerate() {
             let sig = sigs[idx];
-            let nid = g.add_node(p);
+            let nid = g.add_node(n);
 
             if let Some(inp) = inp_id {
                 for port in 0..sig.inputs {
@@ -1074,13 +1258,22 @@ impl Graph {
         g
     }
 
-    /// Fluent pipeline builder for ergonomic chain construction.
+    /// Same as [`Graph::parallel`].
+    pub fn from_parallel(
+        label: &'static str,
+        block_size: usize,
+        nodes: Vec<Box<dyn Node>>,
+    ) -> Self {
+        Self::parallel(label, block_size, nodes)
+    }
+
+    /// Fluent pipeline builder for sequential chains ([`PipelineBuilder::then`]).
     pub fn pipeline(label: &'static str, block_size: usize) -> PipelineBuilder {
         PipelineBuilder {
             label,
             block_size,
             input_channels: 0,
-            processors: Vec::new(),
+            chain: Vec::new(),
         }
     }
 }
@@ -1111,35 +1304,35 @@ pub struct GraphSnapshot {
     pub edges: Vec<Edge>,
 }
 
-/// Fluent builder for sequential processor chains.
+/// Fluent builder for sequential [`Node`] chains ([`Graph::pipeline`]).
 pub struct PipelineBuilder {
     label: &'static str,
     block_size: usize,
     input_channels: u16,
-    processors: Vec<Box<dyn Processor>>,
+    chain: Vec<Box<dyn Node>>,
 }
 
 impl PipelineBuilder {
-    /// Declare input channels (call before `then()`).
+    /// Declare input channels (call before [`Self::then`]).
     pub fn input(mut self, channels: u16) -> Self {
         self.input_channels = channels;
         self
     }
 
-    /// Append a processor to the chain.
-    pub fn then(mut self, proc: Box<dyn Processor>) -> Self {
-        self.processors.push(proc);
+    /// Append a [`Node`] to the chain.
+    pub fn then(mut self, node: Box<dyn Node>) -> Self {
+        self.chain.push(node);
         self
     }
 
-    /// Build the pipeline into a Graph. Panics if empty or sigs are incompatible.
+    /// Build into a [`Graph`]. Panics if empty or signatures are incompatible.
     pub fn build(self) -> Graph {
         assert!(
-            !self.processors.is_empty(),
-            "pipeline requires at least one processor"
+            !self.chain.is_empty(),
+            "pipeline requires at least one node"
         );
 
-        let sigs: Vec<Sig> = self.processors.iter().map(|p| p.info().sig).collect();
+        let sigs: Vec<Sig> = self.chain.iter().map(|p| p.info().sig).collect();
 
         let mut g = Graph::labeled(self.block_size, self.label);
 
@@ -1148,9 +1341,9 @@ impl PipelineBuilder {
             g.set_input(inp, self.input_channels);
         }
 
-        let mut node_ids: Vec<NodeId> = Vec::with_capacity(self.processors.len());
-        for p in self.processors {
-            node_ids.push(g.add_node(p));
+        let mut node_ids: Vec<NodeId> = Vec::with_capacity(self.chain.len());
+        for n in self.chain {
+            node_ids.push(g.add_node(n));
         }
 
         if self.input_channels > 0 {
@@ -1173,19 +1366,23 @@ impl PipelineBuilder {
     }
 }
 
-// SAFETY: Graph is Send because all its Processor nodes are Send.
+// SAFETY: Graph is Send because every stored [`Node`] is Send.
 unsafe impl Send for Graph {}
 
-impl Processor for Graph {
-    fn info(&self) -> ProcessorInfo {
-        ProcessorInfo {
+impl Node for Graph {
+    fn info(&self) -> NodeInfo {
+        NodeInfo {
             name: self.label,
             sig: Sig {
                 inputs: self.num_inputs,
                 outputs: self.num_outputs,
             },
-            description: "Composite processor graph",
+            description: "Composite graph (nested nodes)",
         }
+    }
+
+    fn prepare(&mut self, env: &PrepareEnv) -> Result<(), PrepareError> {
+        Graph::prepare(self, env)
     }
 
     fn process(&mut self, ctx: &mut ProcessContext) {
@@ -1200,7 +1397,8 @@ impl Processor for Graph {
             }
         }
 
-        self.run(ctx.frames, ctx.sample_rate, ctx.events);
+        self.run(ctx.frames, ctx.sample_rate, ctx.events)
+            .expect("Graph::run");
 
         if let Some(output_node) = self.output_node {
             for port in 0..self.num_outputs as usize {
@@ -1262,9 +1460,9 @@ mod tests {
         value: f32,
     }
 
-    impl Processor for ConstGen {
-        fn info(&self) -> ProcessorInfo {
-            ProcessorInfo {
+    impl Node for ConstGen {
+        fn info(&self) -> NodeInfo {
+            NodeInfo {
                 name: "const",
                 sig: Sig::SOURCE1,
                 description: "",
@@ -1280,9 +1478,9 @@ mod tests {
 
     struct Doubler;
 
-    impl Processor for Doubler {
-        fn info(&self) -> ProcessorInfo {
-            ProcessorInfo {
+    impl Node for Doubler {
+        fn info(&self) -> NodeInfo {
+            NodeInfo {
                 name: "doubler",
                 sig: Sig::MONO,
                 description: "",
@@ -1302,7 +1500,7 @@ mod tests {
         let gen = graph.add_node(Box::new(ConstGen { value: 0.5 }));
         let dbl = graph.add_node(Box::new(Doubler));
         graph.connect(gen, 0, dbl, 0);
-        graph.run(64, 44100.0, &[]);
+        graph.run(64, 44100.0, &[]).unwrap();
 
         let out = graph.output_buffer(dbl, 0);
         assert_eq!(out.len(), 64);
@@ -1312,7 +1510,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_as_processor() {
+    fn graph_as_node() {
         let mut inner = Graph::labeled(64, "inner");
         let gen = inner.add_node(Box::new(ConstGen { value: 0.25 }));
         let dbl = inner.add_node(Box::new(Doubler));
@@ -1323,7 +1521,7 @@ mod tests {
 
         let mut outer = Graph::new(64);
         let inner_id = outer.add_node(Box::new(inner));
-        outer.run(64, 44100.0, &[]);
+        outer.run(64, 44100.0, &[]).unwrap();
 
         let out = outer.output_buffer(inner_id, 0);
         for &s in &out[..64] {
@@ -1343,7 +1541,7 @@ mod tests {
 
         let mut outer = Graph::new(64);
         let inner_id = outer.add_node(Box::new(inner));
-        outer.run(64, 44100.0, &[]);
+        outer.run(64, 44100.0, &[]).unwrap();
 
         assert!(outer.graph_at_path(&[]).is_some());
         let inner_g = outer.graph_at_path(&[inner_id]).expect("nested graph");
@@ -1400,7 +1598,7 @@ mod tests {
         let mut g = Graph::labeled(64, "synth");
         let gen = g.add_node(Box::new(ConstGen { value: 1.0 }));
         let _dbl = g.add_node(Box::new(Doubler));
-        // ConstGen has no params, but we can still test the machinery with a real processor
+        // ConstGen has no params, but we can still test the machinery with a real node
         // Just verify empty param_map works
         assert!(g.params().is_empty());
         assert!(g.param_groups().is_empty());
@@ -1415,7 +1613,7 @@ mod tests {
         assert_eq!(gid, 0);
         assert_eq!(g.param_groups().len(), 1);
 
-        // node_has_children should return false for leaf processors
+        // node_has_children should return false for leaf nodes
         assert!(!g.node_has_children(gen));
     }
 
@@ -1574,7 +1772,7 @@ mod tests {
 
         let mut outer = Graph::new(64);
         let inner_id = outer.add_node(Box::new(g));
-        outer.run(64, 44100.0, &[]);
+        outer.run(64, 44100.0, &[]).unwrap();
         let out = outer.output_buffer(inner_id, 0);
         for &s in &out[..64] {
             assert!((s - 1.0).abs() < 1e-6);
@@ -1619,11 +1817,26 @@ mod tests {
 
     #[test]
     fn chain_sig_matches_algebra() {
-        let procs: Vec<Box<dyn Processor>> = vec![Box::new(Doubler), Box::new(Doubler)];
+        let procs: Vec<Box<dyn Node>> = vec![Box::new(Doubler), Box::new(Doubler)];
         let s0 = procs[0].info().sig;
         let s1 = procs[1].info().sig;
         let g = Graph::chain("test", 64, procs).unwrap();
         assert_eq!(g.sig(), s0.chain(s1).unwrap());
+    }
+
+    #[test]
+    fn from_chain_and_chain_from_iter_match_chain() {
+        let mk = || {
+            vec![
+                Box::new(ConstGen { value: 0.5 }) as Box<dyn Node>,
+                Box::new(Doubler),
+            ]
+        };
+        let a = Graph::chain("a", 64, mk()).unwrap();
+        let b = Graph::from_chain("b", 64, mk()).unwrap();
+        let c = Graph::chain_from_iter("c", 64, mk()).unwrap();
+        assert_eq!(a.sig(), b.sig());
+        assert_eq!(a.sig(), c.sig());
     }
 
     #[test]
@@ -1644,11 +1857,11 @@ mod tests {
 
         let mut outer_a = Graph::new(64);
         let id_a = outer_a.add_node(Box::new(g_chain));
-        outer_a.run(64, 44100.0, &[]);
+        outer_a.run(64, 44100.0, &[]).unwrap();
 
         let mut outer_b = Graph::new(64);
         let id_b = outer_b.add_node(Box::new(g_pipe));
-        outer_b.run(64, 44100.0, &[]);
+        outer_b.run(64, 44100.0, &[]).unwrap();
 
         let a = outer_a.output_buffer(id_a, 0);
         let b = outer_b.output_buffer(id_b, 0);
@@ -1698,7 +1911,7 @@ mod tests {
 
         let mut outer = Graph::new(64);
         let nid = outer.add_node(Box::new(g));
-        outer.run(64, 44100.0, &[]);
+        outer.run(64, 44100.0, &[]).unwrap();
 
         let out0 = outer.output_buffer(nid, 0);
         let out1 = outer.output_buffer(nid, 1);
@@ -1786,10 +1999,53 @@ mod tests {
 
     #[test]
     fn set_param_at_path_depth_1() {
-        use crate::dsp::gain::MonoGain;
+        struct TestMonoGain {
+            level: f32,
+        }
+
+        impl Node for TestMonoGain {
+            fn info(&self) -> NodeInfo {
+                NodeInfo {
+                    name: "test_mono_gain",
+                    sig: Sig::MONO,
+                    description: "",
+                }
+            }
+            fn process(&mut self, ctx: &mut ProcessContext) {
+                for i in 0..ctx.frames {
+                    ctx.outputs[0][i] = ctx.inputs[0][i] * self.level;
+                }
+            }
+            fn reset(&mut self) {}
+            fn params(&self) -> Vec<ParamDescriptor> {
+                vec![ParamDescriptor {
+                    id: 0,
+                    name: "Level",
+                    min: 0.0,
+                    max: 2.0,
+                    default: 1.0,
+                    unit: ParamUnit::Linear,
+                    flags: ParamFlags::NONE,
+                    step: 0.05,
+                    group: None,
+                    help: "",
+                }]
+            }
+            fn get_param(&self, id: u32) -> f64 {
+                match id {
+                    0 => self.level as f64,
+                    _ => 0.0,
+                }
+            }
+            fn set_param(&mut self, id: u32, value: f64) {
+                if id == 0 {
+                    self.level = value.clamp(0.0, 2.0) as f32;
+                }
+            }
+        }
 
         let mut inner = Graph::labeled(64, "inner");
-        let gain_node = inner.add_node(Box::new(MonoGain::new(1.0)));
+        let gain_node = inner.add_node(Box::new(TestMonoGain { level: 1.0 }));
         inner.set_output(gain_node, 1);
 
         let mut outer = Graph::new(64);

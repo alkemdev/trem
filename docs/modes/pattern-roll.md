@@ -2,7 +2,7 @@
 
 **User story:** As someone shaping a pattern, I want to leave the step grid, open a piano roll for **the voice lane I have selected** (not every lane at once), see **that lane’s notes** in continuous time and pitch, scrub with the **same playhead** as the rest of the app, hear **the rest of the pattern still playing** in preview, and **apply** back to **only that column** when I’m done.
 
-**Parent context:** **SEQ → Navigate → Enter** opens this mode for **`cursor_col`** (the highlighted voice column). The roll edits a [`Clip`](../../crates/trem-rung/) slice of that column only; **Esc** merges into the step grid **without touching other columns**.
+**Parent context:** **SEQ → Navigate → Enter** opens this mode for **`cursor_col`** (the highlighted voice column). The roll edits a `trem::rung::Clip` slice of that column only; **Esc** merges into the step grid **without touching other columns**.
 
 ---
 

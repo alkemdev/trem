@@ -1,4 +1,4 @@
-//! Main TUI application: grid, views, transport, and [`trem_cpal::Bridge`] integration.
+//! Main TUI application: grid, views, transport, and [`trem_rta::Bridge`] integration.
 //!
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
@@ -17,7 +17,7 @@ use trem::event::NoteEvent;
 use trem::graph::{Edge, GraphSnapshot, ParamDescriptor};
 use trem::math::Rational;
 use trem::pitch::Pitch;
-use trem_cpal::{Bridge, Command, Notification, ScopeFocus};
+use trem_rta::{Bridge, Command, Notification, ScopeFocus};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -136,7 +136,7 @@ pub struct GraphFrame {
 }
 
 impl App {
-    /// Initial pattern view, scale metadata, and per-column voice IDs for [`trem_cpal::Command::NoteOn`].
+    /// Initial pattern view, scale metadata, and per-column voice IDs for [`trem_rta::Command::NoteOn`].
     pub fn new(
         grid: trem::grid::Grid,
         scale: trem::pitch::Scale,
@@ -263,7 +263,7 @@ impl App {
         self
     }
 
-    /// Sets processor descriptions for each node (shown in info help).
+    /// Sets one-line descriptions per graph node (shown in info help).
     pub fn set_node_descriptions(&mut self, descriptions: Vec<String>) {
         self.graph_node_descriptions = descriptions;
     }

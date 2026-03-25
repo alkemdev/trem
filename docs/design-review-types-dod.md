@@ -4,7 +4,7 @@ This note captures a pass over **trem** (core + TUI) for stronger typing, less a
 
 ## What’s already in good shape
 
-- **`trem::graph`**: `NodeId`, `PortIdx`, `Sig`, `Edge`, `ParamDescriptor`, `ParamUnit`, `GroupHint` — introspection is explicitly data-driven; processors describe themselves for any UI.
+- **`trem::graph`**: `NodeId`, `PortIdx`, `Sig`, `Edge`, `ParamDescriptor`, `ParamUnit`, `GroupHint` — introspection is explicitly data-driven; nodes describe themselves for any UI.
 - **`Sig::chain` / `parallel`**: algebraic API for port shapes instead of unchecked wiring everywhere.
 - **Bridge `Command` / `Notification`**: explicit sum types for cross-thread messages.
 - **Grid / rational time / scale types**: domain concepts are named, not only `f64` soup.
@@ -19,7 +19,7 @@ This note captures a pass over **trem** (core + TUI) for stronger typing, less a
 
 ### High value / low churn
 
-- **`NodePath` usage end-to-end**: `Command::SetParam.path` is already `Vec<u32>`; consider a thin newtype `NodePath(Vec<NodeId>)` (or re-export path type from `trem` in `trem-cpal`) so “list of node indices” isn’t interchangeable with arbitrary `Vec<u32>`.
+- **`NodePath` usage end-to-end**: `Command::SetParam.path` is already `Vec<u32>`; consider a thin newtype `NodePath(Vec<NodeId>)` (or re-export path type from `trem` in `trem-rta`) so “list of node indices” isn’t interchangeable with arbitrary `Vec<u32>`.
 - **`(NodeId, String)` rows**: introduce e.g. `struct NodeRow { id: NodeId, label: String }` or `type NodeRow = (NodeId, String)` **in `trem::graph`** and use it in TUI + snapshots for one canonical “node list row” type.
 - **`snapshot_all_params` return type**: today `Vec<(Vec<ParamDescriptor>, Vec<f64>, Vec<ParamGroup>)>`. A `struct NodeParamSnapshot { descriptors, values, groups }` (or nested `NodeSnapshot`-aligned struct) removes tuple noise and keeps field names at boundaries.
 

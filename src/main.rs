@@ -1,4 +1,4 @@
-//! `trem` — default: synth TUI. **`trem rung import|edit`** for clip tools.
+//! `trem` — default: synth TUI. **`trem rung`** / **`trem clip`** — import MIDI, edit Rung JSON.
 
 mod cli;
 mod demo;
@@ -61,9 +61,9 @@ fn run_tui() -> Result<()> {
     ];
     let voice_ids = vec![0, 1, 2, 3, 4];
 
-    let (bridge, audio_bridge) = trem_cpal::create_bridge(1024);
+    let (bridge, audio_bridge) = trem_rta::create_bridge(1024);
     let _engine =
-        trem_cpal::AudioEngine::new(audio_bridge, graph, output_node, Some(inst_bus_id), 44100.0)?;
+        trem_rta::AudioEngine::new(audio_bridge, graph, output_node, Some(inst_bus_id), 44100.0)?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -86,7 +86,7 @@ fn run_tui() -> Result<()> {
     app.set_node_descriptions(descriptions);
     app.set_node_children(has_children);
     app.bpm = DEMO_BPM;
-    app.bridge.send(trem_cpal::Command::SetBpm(DEMO_BPM));
+    app.bridge.send(trem_rta::Command::SetBpm(DEMO_BPM));
 
     let result = app.run(&mut terminal);
 

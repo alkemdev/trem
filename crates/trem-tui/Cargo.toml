@@ -11,9 +11,8 @@ keywords = ["tui", "music", "sequencer", "ratatui"]
 categories = ["multimedia::audio", "command-line-interface"]
 
 [dependencies]
-trem = { workspace = true, features = ["serde"] }
-trem-rung = { workspace = true }
-trem-cpal = { workspace = true }
+trem = { workspace = true, features = ["serde", "rung"] }
+trem-rta = { workspace = true }
 num-rational = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }

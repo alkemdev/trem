@@ -1,21 +1,21 @@
 //! Default polyphonic synth + pattern playback for `trem rung edit`.
 //!
-//! Maps each [`trem_rung::ClipNote::class`] to **MIDI-like pitch** (12-TET, A4=440) for
+//! Maps each [`trem::rung::ClipNote::class`] to **MIDI-like pitch** (12-TET, A4=440) for
 //! preview only; the Rung format does not embed tuning.
 
 use crate::demo::graph::instrument_channel;
 use crate::demo::levels::BLOCK_SIZE;
 use num_rational::Rational64;
-use trem::dsp;
-use trem::event::{GraphEvent, TimedEvent};
-use trem::graph::{Graph, Processor};
-use trem_cpal::{create_bridge, AudioEngine, Bridge, Command, Notification};
-use trem_rung::Clip;
+use trem::event::{cmp_timed_event_delivery, GraphEvent, TimedEvent};
+use trem::graph::{Graph, Node};
+use trem::rung::Clip;
+use trem_dsp::standard as dsp;
+use trem_rta::{create_bridge, AudioEngine, Bridge, Command, Notification};
 
 const VOICES: u32 = 16;
 const SAMPLE_RATE: f64 = 44100.0;
 
-/// Realtime preview: 16 [`trem::dsp::analog_voice`] lanes + simple mix/limiter.
+/// Realtime preview: 16 [`analog_voice`](trem_dsp::analog_voice) lanes + simple mix/limiter.
 pub struct RungPlayback {
     bridge: Bridge,
     _engine: AudioEngine,
@@ -110,27 +110,49 @@ fn beat_to_samples(beats: Rational64, sample_rate: f64, bpm: f64) -> usize {
     (sec * sample_rate).round().max(0.0) as usize
 }
 
-/// Preview mapping: treat `class` as a MIDI note number (12-TET, A4=440).
+/// Preview mapping: treat `class` as a MIDI key number (12-TET, A4=440).
 fn class_to_hz(class: i32) -> f64 {
-    let m = class.clamp(-48, 127) as f64;
+    let m = class.clamp(0, 127) as f64;
     440.0 * 2.0_f64.powf((m - 69.0) / 12.0)
 }
 
-fn event_sort_key(e: &TimedEvent) -> (usize, u8, u32) {
-    let p = match &e.event {
-        GraphEvent::NoteOn { voice, .. } => (0, *voice),
-        GraphEvent::NoteOff { voice } => (1, *voice),
-        GraphEvent::Param { .. } => (2, 0),
-    };
-    (e.sample_offset, p.0, p.1)
-}
-
+/// Maps clip notes to graph voices: each [`GraphEvent`] voice is monophonic, so overlapping notes
+/// need distinct slots. Uses first-fit across `VOICES` lanes; if all are busy, steals the lane that
+/// frees soonest and inserts a [`GraphEvent::NoteOff`] at the new attack time.
 fn clip_to_timed_events(clip: &Clip, sample_rate: f64, bpm: f64) -> Vec<TimedEvent> {
-    let mut events = Vec::with_capacity(clip.notes.len().saturating_mul(2));
-    for n in &clip.notes {
-        let v = n.voice % VOICES;
+    let mut order: Vec<usize> = (0..clip.notes.len()).collect();
+    order.sort_by(|&i, &j| {
+        let a = &clip.notes[i];
+        let b = &clip.notes[j];
+        a.t_on
+            .rational()
+            .cmp(&b.t_on.rational())
+            .then_with(|| a.t_off.rational().cmp(&b.t_off.rational()))
+    });
+
+    let mut voice_free_sample: Vec<usize> = vec![0; VOICES as usize];
+    let mut events: Vec<TimedEvent> = Vec::with_capacity(clip.notes.len().saturating_mul(3));
+
+    for idx in order {
+        let n = &clip.notes[idx];
         let on = beat_to_samples(n.t_on.rational(), sample_rate, bpm);
         let off = beat_to_samples(n.t_off.rational(), sample_rate, bpm).max(on.saturating_add(1));
+
+        let chosen = (0..VOICES as usize).find(|&v| voice_free_sample[v] <= on);
+        let v = chosen.unwrap_or_else(|| {
+            (0..VOICES as usize)
+                .min_by_key(|&vi| voice_free_sample[vi])
+                .unwrap_or(0)
+        });
+
+        if voice_free_sample[v] > on {
+            events.push(TimedEvent {
+                sample_offset: on,
+                event: GraphEvent::NoteOff { voice: v as u32 },
+            });
+        }
+        voice_free_sample[v] = off;
+
         let vel = n.velocity.clamp(0.0, 1.0);
         let hz = class_to_hz(n.class);
         events.push(TimedEvent {
@@ -138,14 +160,61 @@ fn clip_to_timed_events(clip: &Clip, sample_rate: f64, bpm: f64) -> Vec<TimedEve
             event: GraphEvent::NoteOn {
                 frequency: hz,
                 velocity: vel,
-                voice: v,
+                voice: v as u32,
             },
         });
         events.push(TimedEvent {
             sample_offset: off,
-            event: GraphEvent::NoteOff { voice: v },
+            event: GraphEvent::NoteOff { voice: v as u32 },
         });
     }
-    events.sort_by_key(event_sort_key);
+
+    events.sort_by(cmp_timed_event_delivery);
     events
+}
+
+#[cfg(test)]
+mod clip_voice_tests {
+    use super::*;
+    use trem::rung::{BeatTime, ClipNote, NoteMeta};
+
+    #[test]
+    fn overlapping_same_midi_channel_gets_distinct_graph_voices() {
+        let clip = Clip {
+            notes: vec![
+                ClipNote {
+                    id: None,
+                    class: 60,
+                    t_on: BeatTime::new(0, 1),
+                    t_off: BeatTime::new(2, 1),
+                    voice: 0,
+                    velocity: 0.8,
+                    meta: NoteMeta::default(),
+                },
+                ClipNote {
+                    id: None,
+                    class: 64,
+                    t_on: BeatTime::new(1, 1),
+                    t_off: BeatTime::new(3, 1),
+                    voice: 0,
+                    velocity: 0.8,
+                    meta: NoteMeta::default(),
+                },
+            ],
+            length_beats: None,
+        };
+        let ev = clip_to_timed_events(&clip, 48_000.0, 120.0);
+        let voices_on: Vec<u32> = ev
+            .iter()
+            .filter_map(|e| match &e.event {
+                GraphEvent::NoteOn { voice, .. } => Some(*voice),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(voices_on.len(), 2);
+        assert_ne!(
+            voices_on[0], voices_on[1],
+            "overlapping notes must not share a monophonic graph voice"
+        );
+    }
 }

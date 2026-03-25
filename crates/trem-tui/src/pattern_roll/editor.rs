@@ -10,8 +10,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use trem::grid::Grid;
 use trem::math::Rational;
 use trem::pitch::Scale;
-use trem_cpal::{Bridge, Command};
-use trem_rung::{BeatTime, Clip, ClipNote, RungFile};
+use trem::rung::{BeatTime, Clip, ClipNote, RungFile};
+use trem_rta::{Bridge, Command};
 
 use super::convert::apply_clip_to_grid_column;
 

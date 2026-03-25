@@ -1,8 +1,9 @@
 //! Composition-layer note data and runtime graph events with sample timing.
 //!
-//! [`NoteEvent`] uses scale degrees; [`GraphEvent`] is what processors see after pitch resolution.
+//! [`NoteEvent`] uses scale degrees; [`GraphEvent`] is what the audio graph consumes at render time.
 
 use crate::math::Rational;
+use std::cmp::Ordering;
 
 /// A note event in the composition layer.
 ///
@@ -77,4 +78,64 @@ pub struct TimedEvent {
     pub sample_offset: usize,
     /// The payload delivered to the graph at that offset.
     pub event: GraphEvent,
+}
+
+/// Total ordering for delivering [`TimedEvent`] streams to [`crate::graph::Graph::run`].
+///
+/// Sorts by increasing [`TimedEvent::sample_offset`]. For the same offset, [`GraphEvent::NoteOff`]
+/// comes before [`GraphEvent::NoteOn`] so a voice releases before that slot is reused; then
+/// [`GraphEvent::Param`]. Remaining ties use voice id (note events) or `(node, param)` for
+/// parameters.
+pub fn cmp_timed_event_delivery(a: &TimedEvent, b: &TimedEvent) -> Ordering {
+    a.sample_offset
+        .cmp(&b.sample_offset)
+        .then(graph_event_delivery_rank(&a.event).cmp(&graph_event_delivery_rank(&b.event)))
+        .then(graph_event_voice_sort_key(&a.event).cmp(&graph_event_voice_sort_key(&b.event)))
+        .then(graph_event_param_sort_key(&a.event).cmp(&graph_event_param_sort_key(&b.event)))
+}
+
+fn graph_event_delivery_rank(ev: &GraphEvent) -> u8 {
+    match ev {
+        GraphEvent::NoteOff { .. } => 0,
+        GraphEvent::NoteOn { .. } => 1,
+        GraphEvent::Param { .. } => 2,
+    }
+}
+
+fn graph_event_voice_sort_key(ev: &GraphEvent) -> u32 {
+    match ev {
+        GraphEvent::NoteOn { voice, .. } | GraphEvent::NoteOff { voice } => *voice,
+        GraphEvent::Param { .. } => 0,
+    }
+}
+
+fn graph_event_param_sort_key(ev: &GraphEvent) -> (u32, u32) {
+    match ev {
+        GraphEvent::Param { node, param, .. } => (*node, *param),
+        _ => (0, 0),
+    }
+}
+
+#[cfg(test)]
+mod delivery_order_tests {
+    use super::{cmp_timed_event_delivery, GraphEvent, TimedEvent};
+    use std::cmp::Ordering;
+
+    #[test]
+    fn note_off_before_note_on_same_sample_same_voice() {
+        let off = TimedEvent {
+            sample_offset: 5,
+            event: GraphEvent::NoteOff { voice: 0 },
+        };
+        let on = TimedEvent {
+            sample_offset: 5,
+            event: GraphEvent::NoteOn {
+                frequency: 440.0,
+                velocity: 1.0,
+                voice: 0,
+            },
+        };
+        assert_eq!(cmp_timed_event_delivery(&off, &on), Ordering::Less);
+        assert_eq!(cmp_timed_event_delivery(&on, &off), Ordering::Greater);
+    }
 }

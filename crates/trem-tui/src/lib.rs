@@ -7,7 +7,7 @@
 //! `keyboard_flows`, `widget_labels`; optional `scripts/tui-smoke.expect`).
 //!
 //! The [`App`] struct owns all UI state and communicates with the audio engine
-//! via a [`trem_cpal::Bridge`].
+//! via a [`trem_rta::Bridge`].
 
 pub mod app;
 pub mod editor;

@@ -1,4 +1,4 @@
-//! Piano-roll style TUI for [`trem_rung::RungFile`]: time → horizontal, class → vertical.
+//! Piano-roll style TUI for [`trem::rung::RungFile`]: time → horizontal, class → vertical.
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -15,7 +15,7 @@ use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
-use trem_rung::{BeatTime, Clip, ClipNote, RungFile};
+use trem::rung::{BeatTime, Clip, ClipNote, RungFile};
 
 use crate::rung_playback::RungPlayback;
 
@@ -60,17 +60,17 @@ impl Viewport {
     }
 
     fn zoom_in(&mut self) {
-        self.width_beats = self.width_beats * Rational64::new(2, 3);
+        self.width_beats *= Rational64::new(2, 3);
         self.clamp_width();
     }
 
     fn zoom_out(&mut self) {
-        self.width_beats = self.width_beats * Rational64::new(3, 2);
+        self.width_beats *= Rational64::new(3, 2);
         self.clamp_width();
     }
 
     fn pan_time(&mut self, delta: Rational64) {
-        self.origin_beat = self.origin_beat + delta;
+        self.origin_beat += delta;
     }
 
     /// Column `col` in `0..cols` → [t0, t1) in beats.

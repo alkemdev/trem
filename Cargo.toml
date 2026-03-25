@@ -4,9 +4,9 @@ resolver = "2"
 
 [workspace.dependencies]
 trem = { path = "crates/trem", version = "0.1.0" }
-trem-cpal = { path = "crates/trem-cpal", version = "0.1.0" }
+trem-dsp = { path = "crates/trem-dsp", version = "0.1.0" }
+trem-rta = { path = "crates/trem-rta", version = "0.1.0" }
 trem-tui = { path = "crates/trem-tui", version = "0.1.0" }
-trem-rung = { path = "crates/trem-rung", version = "0.1.0", features = ["midi"] }
 ratatui = "0.30"
 crossterm = "0.28"
 cpal = "0.17"
@@ -20,16 +20,14 @@ name = "trem-bin"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "TUI binary for the trem mathematical music engine"
+description = "trem — terminal synth, graph editor, and Rung clip CLI"
 repository = "https://github.com/alkemdev/trem"
 readme = "README.md"
 documentation = "https://docs.rs/trem-bin"
 exclude = [
     "crates/",
     "docs/",
-    "prop/",
-    "todo/",
-    "work/",
+    "flow/",
     "tests/",
     ".cursor/",
     ".github/",
@@ -43,10 +41,10 @@ name = "trem"
 path = "src/main.rs"
 
 [dependencies]
-trem = { workspace = true }
-trem-cpal = { workspace = true }
+trem = { workspace = true, features = ["rung", "midi"] }
+trem-dsp = { workspace = true }
+trem-rta = { workspace = true }
 trem-tui = { workspace = true }
-trem-rung = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 num-rational = { workspace = true }

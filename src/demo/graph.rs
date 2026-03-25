@@ -15,12 +15,12 @@
 
 use std::collections::HashMap;
 
-use trem::dsp;
-use trem::graph::{Graph, GraphInput, GroupHint, ParamDescriptor, ParamGroup, Processor};
+use trem::graph::{Graph, GraphInput, GroupHint, Node, ParamDescriptor, ParamGroup};
+use trem_dsp::standard as dsp;
 
 use super::levels::{channel, drum_bus, inst_bus, lead_delay, main_bus, BLOCK_SIZE};
 
-/// Copy processor param groups + params into a nested channel graph with remapped group IDs.
+/// Copy source node param groups + params into a nested channel graph with remapped group IDs.
 fn expose_source_params(
     ch: &mut Graph,
     src: trem::graph::NodeId,
@@ -61,7 +61,7 @@ fn channel_gain_group(ch: &mut Graph, gain: trem::graph::NodeId) {
 /// Mono source → gain/pan → stereo out.
 pub fn instrument_channel(
     label: &'static str,
-    source: Box<dyn Processor>,
+    source: Box<dyn Node>,
     level: f32,
     pan: f32,
 ) -> Graph {
@@ -82,7 +82,7 @@ pub fn instrument_channel(
 /// Mono source → gain/pan → short stereo delay → out (+ “Lead flutter” group).
 pub fn instrument_channel_with_delay(
     label: &'static str,
-    source: Box<dyn Processor>,
+    source: Box<dyn Node>,
     synth_level: f32,
     pan: f32,
     delay_ms: f64,
@@ -124,7 +124,7 @@ pub fn instrument_channel_with_delay(
 /// Mono source → distortion → gain/pan → stereo out (+ “Drive” group).
 pub fn instrument_channel_with_distortion(
     label: &'static str,
-    source: Box<dyn Processor>,
+    source: Box<dyn Node>,
     distortion: dsp::Distortion,
     level: f32,
     pan: f32,

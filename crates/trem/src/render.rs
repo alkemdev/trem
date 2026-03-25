@@ -1,16 +1,21 @@
 //! Turn [`Tree`]s and [`Grid`]s into [`TimedEvent`]s and offline multi-block [`Graph`] renders.
 //!
 //! Beat positions are converted via [`crate::time::beat_to_sample`]; each flat leaf becomes a note on/off pair.
+//!
+//! For fixed-length offline passes, prefer [`render_captures`] (or [`render`] for one node / many
+//! ports) over hand-rolled `Graph::run` loops. Use [`loop_timed_events`] to repeat a short pattern
+//! (e.g. one bar of drum hits) across a long render.
 
-use crate::event::{GraphEvent, NoteEvent, TimedEvent};
-use crate::graph::Graph;
+use crate::event::{cmp_timed_event_delivery, GraphEvent, NoteEvent, TimedEvent};
+use crate::graph::{Graph, NodeId, PortIdx, PrepareError};
 use crate::grid::Grid;
 use crate::math::Rational;
 use crate::pitch::Scale;
 use crate::time::beat_to_sample;
 use crate::tree::Tree;
 
-const DEFAULT_BLOCK_SIZE: usize = 512;
+/// Default block size for [`render`] (see [`render_captures`] to choose another).
+pub const DEFAULT_RENDER_BLOCK_SIZE: usize = 512;
 
 /// Resolve a NoteEvent against a Scale to produce a frequency.
 fn resolve_frequency(event: &NoteEvent, scale: &Scale, reference_hz: f64) -> f64 {
@@ -60,31 +65,82 @@ pub fn tree_to_timed_events(
         voice += 1;
     }
 
-    events.sort_by_key(|e| e.sample_offset);
+    events.sort_by(cmp_timed_event_delivery);
     events
 }
 
-/// Render a graph offline to sample buffers.
+/// Tiles `pattern` every `loop_len_samples` until `duration_samples`, sorted by absolute time.
 ///
-/// Returns one `Vec<f32>` per output channel of the final node in the graph.
-/// The `output_node` and `output_ports` specify which node/ports to capture.
-pub fn render(
+/// Use one bar (or one beat) of [`TimedEvent`]s with offsets in `[0, loop_len_samples)`; this is the
+/// offline equivalent of looping a short MIDI clip.
+///
+/// Events at or beyond `duration_samples` are omitted. If `loop_len_samples` is zero, returns
+/// empty.
+pub fn loop_timed_events(
+    pattern: &[TimedEvent],
+    loop_len_samples: usize,
+    duration_samples: usize,
+) -> Vec<TimedEvent> {
+    if loop_len_samples == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut base = 0usize;
+    while base < duration_samples {
+        for e in pattern {
+            let t = base.saturating_add(e.sample_offset);
+            if t < duration_samples {
+                out.push(TimedEvent {
+                    sample_offset: t,
+                    event: e.event.clone(),
+                });
+            }
+        }
+        base += loop_len_samples;
+    }
+    out.sort_by(cmp_timed_event_delivery);
+    out
+}
+
+/// Offline-render the graph for `duration_samples`, recording one buffer per `(node, port)` tap.
+///
+/// Runs in blocks of `block_size` (clamped to at least 1). [`TimedEvent::sample_offset`] values are
+/// absolute; each block receives only events falling inside that window, re-based to frame 0.
+///
+/// Returns `Ok` with `captures.len()` vectors, each of length `duration_samples` (possibly zero).
+///
+/// # Examples
+///
+/// ```ignore
+/// use trem::graph::Graph;
+/// use trem::render::render_captures;
+///
+/// let mut graph = Graph::new(512);
+/// // ... build graph, `pad` and `duck` are NodeIds ...
+/// let buf = render_captures(
+///     &mut graph,
+///     &[],
+///     48_000,
+///     48_000.0,
+///     512,
+///     &[(pad, 0), (pad, 1), (duck, 0), (duck, 1)],
+/// )?;
+/// ```
+pub fn render_captures(
     graph: &mut Graph,
     events: &[TimedEvent],
     duration_samples: usize,
     sample_rate: f64,
-    output_node: u32,
-    output_ports: &[u16],
-) -> Vec<Vec<f32>> {
-    let block_size = DEFAULT_BLOCK_SIZE;
-    let num_channels = output_ports.len();
-    let mut output = vec![vec![0.0f32; duration_samples]; num_channels];
+    block_size: usize,
+    captures: &[(NodeId, PortIdx)],
+) -> Result<Vec<Vec<f32>>, PrepareError> {
+    let block_size = block_size.max(1);
+    let mut output = vec![vec![0.0f32; duration_samples]; captures.len()];
 
     let mut pos = 0;
     while pos < duration_samples {
         let frames = (duration_samples - pos).min(block_size);
 
-        // Collect events for this block, adjusting offsets to be block-relative
         let block_events: Vec<TimedEvent> = events
             .iter()
             .filter(|e| e.sample_offset >= pos && e.sample_offset < pos + frames)
@@ -94,20 +150,43 @@ pub fn render(
             })
             .collect();
 
-        graph.run(frames, sample_rate, &block_events);
+        graph.run(frames, sample_rate, &block_events)?;
 
-        for (ch, &port) in output_ports.iter().enumerate() {
-            let buf = graph.output_buffer(output_node, port);
-            output[ch][pos..pos + frames].copy_from_slice(&buf[..frames]);
+        for (ci, &(node, port)) in captures.iter().enumerate() {
+            let buf = graph.output_buffer(node, port);
+            output[ci][pos..pos + frames].copy_from_slice(&buf[..frames]);
         }
 
         pos += frames;
     }
 
-    output
+    Ok(output)
 }
 
-/// Convenience: render a pattern tree through a graph to stereo output.
+/// Render a graph offline to sample buffers for one node's ports.
+///
+/// Same as [`render_captures`] with `block_size` [`DEFAULT_RENDER_BLOCK_SIZE`] and taps
+/// `(output_node, p)` for each `p` in `output_ports`.
+pub fn render(
+    graph: &mut Graph,
+    events: &[TimedEvent],
+    duration_samples: usize,
+    sample_rate: f64,
+    output_node: NodeId,
+    output_ports: &[PortIdx],
+) -> Result<Vec<Vec<f32>>, PrepareError> {
+    let captures: Vec<(NodeId, PortIdx)> = output_ports.iter().map(|&p| (output_node, p)).collect();
+    render_captures(
+        graph,
+        events,
+        duration_samples,
+        sample_rate,
+        DEFAULT_RENDER_BLOCK_SIZE,
+        &captures,
+    )
+}
+
+/// Convenience: render a pattern tree through a graph to stereo output (ports 0 and 1).
 pub fn render_pattern(
     tree: &Tree<NoteEvent>,
     beats: Rational,
@@ -116,8 +195,8 @@ pub fn render_pattern(
     scale: &Scale,
     reference_hz: f64,
     graph: &mut Graph,
-    output_node: u32,
-) -> Vec<Vec<f32>> {
+    output_node: NodeId,
+) -> Result<Vec<Vec<f32>>, PrepareError> {
     let duration_beats = beats.to_f64();
     let duration_seconds = duration_beats * 60.0 / bpm;
     let duration_samples = (duration_seconds * sample_rate).ceil() as usize;
@@ -190,50 +269,29 @@ pub fn grid_to_timed_events(
         }
     }
 
-    events.sort_by_key(|e| e.sample_offset);
+    events.sort_by(cmp_timed_event_delivery);
     events
 }
 
 #[cfg(test)]
-mod tests {
+mod loop_tests {
     use super::*;
-    use crate::dsp::{Adsr, Gain, Oscillator, Waveform};
-    use crate::pitch::Tuning;
+    use crate::event::GraphEvent;
 
     #[test]
-    fn render_simple_pattern() {
-        let scale = Tuning::edo12().to_scale();
-
-        let tree = Tree::seq(vec![
-            Tree::leaf(NoteEvent::simple(0)),
-            Tree::rest(),
-            Tree::leaf(NoteEvent::simple(4)),
-            Tree::rest(),
-        ]);
-
-        let mut graph = Graph::new(DEFAULT_BLOCK_SIZE);
-        let osc = graph.add_node(Box::new(Oscillator::new(Waveform::Saw)));
-        let env = graph.add_node(Box::new(Adsr::new(0.005, 0.05, 0.3, 0.1)));
-        let gain = graph.add_node(Box::new(Gain::new(0.5)));
-        graph.connect(osc, 0, env, 0);
-        graph.connect(env, 0, gain, 0);
-
-        let output = render_pattern(
-            &tree,
-            Rational::integer(4),
-            120.0,
-            44100.0,
-            &scale,
-            440.0,
-            &mut graph,
-            gain,
-        );
-
-        assert_eq!(output.len(), 2);
-        // At 120 BPM, 4 beats = 2 seconds = 88200 samples
-        assert!(output[0].len() >= 88200);
-        // Should have non-zero audio (the oscillator produces sound)
-        let energy: f32 = output[0].iter().map(|s| s * s).sum();
-        assert!(energy > 0.0, "output should contain audio");
+    fn loop_timed_events_two_bars() {
+        let pattern = [TimedEvent {
+            sample_offset: 0,
+            event: GraphEvent::NoteOn {
+                frequency: 100.0,
+                velocity: 1.0,
+                voice: 0,
+            },
+        }];
+        let out = loop_timed_events(&pattern, 100, 250);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].sample_offset, 0);
+        assert_eq!(out[1].sample_offset, 100);
+        assert_eq!(out[2].sample_offset, 200);
     }
 }

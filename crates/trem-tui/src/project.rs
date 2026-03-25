@@ -77,7 +77,7 @@ impl ProjectData {
                         let node_id = app.graph_nodes[ov.node_idx].0;
                         let mut path = app.graph_path.clone();
                         path.push(node_id);
-                        app.bridge.send(trem_cpal::Command::SetParam {
+                        app.bridge.send(trem_rta::Command::SetParam {
                             path,
                             param_id: ov.param_id,
                             value: ov.value,
@@ -87,7 +87,7 @@ impl ProjectData {
             }
         }
 
-        app.bridge.send(trem_cpal::Command::SetBpm(self.bpm));
+        app.bridge.send(trem_rta::Command::SetBpm(self.bpm));
     }
 }
 

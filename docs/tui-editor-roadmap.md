@@ -7,7 +7,7 @@ The terminal UI is **modal**: one focused editor at a time, switched with **Tab*
 - **Cross-mode contract** — see [modes/principles.md](./modes/principles.md) for shared rules (transport, commit, selection-first, help).
 - **One surface, one keymap family** — global chords (play, BPM, save, `?`, Tab) stay stable; each editor adds its own layer (like Pattern note keys vs Graph node/param keys).
 - **Wire in order** — extend `Editor` in [`input.rs`](../crates/trem-tui/src/input.rs), route in `handle_key`, add a render arm in `App::draw` ([`app.rs`](../crates/trem-tui/src/app.rs)), document bindings in `HelpOverlay` ([`help.rs`](../crates/trem-tui/src/view/help.rs)), and add short sidebar hints in `InfoView` ([`info.rs`](../crates/trem-tui/src/view/info.rs)).
-- **Scope / audio** — decide per editor what `ScopeFocus` (`trem-cpal`) and bottom **IN|OUT** behavior should be (Graph today uses dual scope; Pattern uses master only).
+- **Scope / audio** — decide per editor what `ScopeFocus` (`trem-rta`) and bottom **IN|OUT** behavior should be (Graph today uses dual scope; Pattern uses master only).
 
 ## Candidate editors (not implemented)
 

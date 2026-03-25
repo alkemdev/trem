@@ -23,17 +23,19 @@ cd trem
 cargo run
 ```
 
-- **Binary name:** `trem` (workspace package `trem-bin`). **Default:** running `trem` or `cargo run` starts the **synth / pattern TUI**. Use **`trem rung …`** for MIDI import and Rung clip edit; **`trem tui`** is the same as bare `trem`.
+- **Binary name:** `trem` (workspace package `trem-bin`). **Default:** running `trem` or `cargo run` starts the **synth / pattern TUI**. Use **`trem rung …`** (alias **`trem clip …`**) for MIDI import and Rung clip edit; **`trem tui`** is the same as bare `trem`. **`trem --version`** prints the binary version.
 - **First run** compiles dependencies; later runs are fast.
 - **Demo patch** lives in `src/demo/`; `src/main.rs` wires CLI + TUI.
 
 ### Rung clip tools (`trem rung`)
 
-**Rung** is the JSON clip format (see **`crates/trem-rung/README.md`**).
+**Rung** is the JSON clip format (types in **`trem::rung`**, crate features **`rung`** / **`midi`**).
 
 ```bash
 trem rung import piece.mid              # → piece.rung.json next to the input
+trem clip import piece.mid              # same (visible alias)
 trem rung import piece.mid -o out.json
+trem rung import piece.mid -o -         # write JSON to stdout
 trem rung edit piece.rung.json          # piano-roll editor (needs a real TTY)
 trem rung import --help
 ```
@@ -132,12 +134,14 @@ Use a **real terminal** (not a minimal pipe); the UI uses **raw mode** and the *
 
 ## 6. Library-only (no audio device)
 
-Core DSP and offline rendering do not need cpal:
+Core library and offline rendering (via **trem-dsp**) do not need cpal:
 
 ```bash
 cargo build -p trem
+cargo build -p trem-dsp
 cargo test -p trem
-cargo run -p trem --example offline_render
+cargo test -p trem-dsp
+cargo run -p trem-dsp --example offline_render
 ```
 
 ---

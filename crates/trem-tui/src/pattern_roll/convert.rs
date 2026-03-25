@@ -1,11 +1,11 @@
-//! Bidirectional conversion between the step [`Grid`] and a beat-time [`trem_rung::Clip`] for the piano roll.
+//! Bidirectional conversion between the step [`Grid`] and a beat-time [`trem::rung::Clip`] for the piano roll.
 
 use num_rational::Rational64;
 use trem::event::NoteEvent;
 use trem::grid::Grid;
 use trem::math::Rational;
 use trem::pitch::Scale;
-use trem_rung::{BeatTime, Clip, ClipNote, NoteMeta};
+use trem::rung::{BeatTime, Clip, ClipNote, NoteMeta};
 
 fn resolve_frequency(event: &NoteEvent, scale: &Scale, reference_hz: f64) -> f64 {
     use trem::pitch::Pitch;

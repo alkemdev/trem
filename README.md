@@ -30,13 +30,14 @@ cargo run
 - **Composition is a tree.** Patterns are recursive `Tree<Event>` structures.
   Children of `Seq` subdivide the parent's time span evenly. Children of `Par`
   overlap. Triplets, quintuplets, nested polyrhythms — just tree shapes.
-- **Sound is a graph.** Audio processing is a DAG of typed processor nodes.
-  Each processor declares its own inputs, outputs, and parameters. Graphs nest
-  recursively — a `Graph` is itself a `Processor`, so complex instruments and
+- **Sound is a graph.** Audio processing is a DAG of typed **[`Node`](https://docs.rs/trem/latest/trem/graph/trait.Node.html)** implementations.
+  Each node declares its own inputs, outputs, and parameters. Graphs nest
+  recursively — a [`Graph`](https://docs.rs/trem/latest/trem/graph/struct.Graph.html) is itself a `Node`, so complex instruments and
   buses are single composable nodes.
 - **Library first.** The core `trem` crate has zero I/O dependencies. It
-  compiles to WASM. It renders offline to sample buffers. The TUI and audio
-  driver are separate crates that depend on it.
+  compiles to WASM. It renders offline to sample buffers when paired with
+  **`trem-dsp`** (or your own `Node` implementations). The TUI and audio driver are
+  separate crates that depend on it.
 
 ## Architecture
 
@@ -51,7 +52,7 @@ cargo run
 │                                             │           │
 │  grid::Grid ──────────────────────┘         │           │
 │                                             ▼           │
-│  graph::Graph ◀── dsp::* ◀── euclidean    process()     │
+│  graph::Graph ◀── trem_dsp::standard ◀── euclidean  process() │
 │       │           registry                              │
 │       ▼                                                 │
 │  output_buffer() ──▶ [f32]                              │
@@ -60,7 +61,7 @@ cargo run
      ┌───────┴───────┐
      ▼               ▼
 ┌─────────┐   ┌───────────┐
-│trem-cpal│   │  trem-tui │
+│trem-rta │   │  trem-tui │
 │         │   │           │
 │ cpal    │◀──│ ratatui   │
 │ stream  │cmd│ crossterm │
@@ -69,12 +70,17 @@ cargo run
 ```
 
 **trem** — Core library. Rational arithmetic, pitch/scale systems, temporal
-trees, audio processing graphs, DSP primitives (oscillators, envelopes,
-filters, dynamics, effects), Euclidean rhythm generation, grid sequencer,
-processor registry, and offline rendering. No runtime dependencies beyond
+trees, audio processing graphs, Euclidean rhythm generation, grid sequencer,
+[`Registry`](https://docs.rs/trem/latest/trem/registry/struct.Registry.html) types, and offline rendering. No runtime dependencies beyond
 `bitflags` and `num-rational`.
 
-**trem-cpal** — Real-time audio backend. Drives a `Graph` from a cpal output
+**trem-dsp** — Stock **`Node`** implementations for the graph (oscillators, envelopes,
+filters, dynamics, effects, drum synths, nested voices) plus
+`register_standard` / `standard_registry`. Crate **`trem-dsp`**, import as
+**`trem_dsp`**. The `interfaces` module re-exports `trem` graph/event types for
+custom node authors; **`standard`** holds the built-in implementations.
+
+**trem-rta** — Real-time playback host. Drives a `Graph` from a cpal output
 stream. Communicates with the UI via a lock-free ring buffer (`rtrb`): the UI
 sends `Command`s (play, pause, stop, set parameter), the audio thread sends back
 `Notification`s (beat position, meter levels).
@@ -86,16 +92,17 @@ previews), waveform scope, a **sidebar** (cursor / project / keys / contextual
 hints, with **PROC** stats for **this process** — CPU % and RSS — at the bottom),
 and contextual key hints. Built on ratatui + crossterm.
 
-**trem-rung** — **Rung** clip interchange: JSON note clips (`class` × beat time, `voice`,
-velocity, meta) for sharing between tools and building transforms. Optional
-**MIDI import** (`midly`). Crate **`trem-rung`**, import as **`trem_rung`**. See
-**`crates/trem-rung/README.md`** and **`prop/piano-roll-editor-model.md`**.
+**Rung clips** (`trem::rung`) — JSON note clips (`class` × beat time, `voice`,
+velocity, meta) for sharing between tools and building transforms. Lives in crate
+**`trem`** behind features **`rung`** / **`midi`** (SMF import via `midly`). See
+**`flow/prop/piano-roll-editor-model.md`**.
 
 ## Quick start
 
 ```bash
 cargo run                       # terminal synth / pattern demo (default)
-cargo run -- rung import tune.mid   # MIDI → tune.rung.json
+cargo run -- rung import tune.mid   # MIDI → tune.rung.json (`clip` = alias for `rung`)
+cargo run -- rung import tune.mid -o -   # same, print JSON to stdout
 cargo run -- rung edit tune.rung.json   # piano-roll + synth preview (TTY + audio)
 ```
 
@@ -215,12 +222,14 @@ Full **input story & v2 roadmap:** `docs/modes/pattern-roll.md`. Shared **mode p
 
 ## DSP library
 
-All processors implement the `Processor` trait and declare their parameters via
-`ParamDescriptor`, enabling automatic UI generation for any frontend.
+All built-in nodes implement [`Node`](https://docs.rs/trem/latest/trem/graph/trait.Node.html) and declare parameters via
+[`ParamDescriptor`](https://docs.rs/trem/latest/trem/graph/struct.ParamDescriptor.html), enabling automatic UI generation for any frontend.
+
+**Design reference:** [docs/graph-architecture.md](docs/graph-architecture.md) — terminology, `Graph::from_chain` / `chain` / `pipeline`, nesting.
 
 ### Sources
 
-| Tag    | Processor        | Description                                    |
+| Tag    | Kind             | Description                                    |
 |--------|------------------|------------------------------------------------|
 | `osc`  | `Oscillator`     | PolyBLEP oscillator (sine, saw, square, triangle) |
 | `noi`  | `Noise`          | White noise (deterministic LCG)                |
@@ -233,7 +242,7 @@ All processors implement the `Processor` trait and declare their parameters via
 
 ### Effects & EQ
 
-| Tag    | Processor        | Description                                    |
+| Tag    | Kind             | Description                                    |
 |--------|------------------|------------------------------------------------|
 | `dly`  | `StereoDelay`    | Stereo delay with feedback and dry/wet mix     |
 | `dst`  | `Distortion`     | Mono waveshaper: tanh / hard / fold / soft / diode + mix |
@@ -243,14 +252,14 @@ All processors implement the `Processor` trait and declare their parameters via
 
 ### Dynamics
 
-| Tag    | Processor        | Description                                    |
+| Tag    | Kind             | Description                                    |
 |--------|------------------|------------------------------------------------|
 | `lim`  | `Limiter`        | Stereo brickwall limiter                       |
 | `com`  | `Compressor`     | Stereo downward compressor                     |
 
 ### Filters & Modulators
 
-| Tag    | Processor        | Description                                    |
+| Tag    | Kind             | Description                                    |
 |--------|------------------|------------------------------------------------|
 | `lpf`  | `BiquadFilter`   | Low-pass biquad (2nd-order IIR)                |
 | `hpf`  | `BiquadFilter`   | High-pass biquad                               |
@@ -260,7 +269,7 @@ All processors implement the `Processor` trait and declare their parameters via
 
 ### Mixing & Utility
 
-| Tag    | Processor        | Description                                    |
+| Tag    | Kind             | Description                                    |
 |--------|------------------|------------------------------------------------|
 | `vol`  | `StereoGain`     | Stereo pass-through gain                       |
 | `gain` | `MonoGain`       | Simple mono gain                               |
@@ -268,28 +277,29 @@ All processors implement the `Processor` trait and declare their parameters via
 | `mix`  | `StereoMixer`    | N-input stereo summing bus                     |
 | `xfade`| `MonoCrossfade`  | Mono crossfade between two inputs              |
 
-## Processor registry
+## Tag registry
 
-The `Registry` maps short tags to factory functions, so processors can be
-instantiated at runtime without compile-time coupling:
+The [`Registry`](https://docs.rs/trem/latest/trem/registry/struct.Registry.html) maps short tags to factories, so `Node` instances can be
+created at runtime without compile-time coupling to concrete types:
 
 ```rust
 use trem::registry::Registry;
+use trem_dsp::standard_registry;
 
-let reg = Registry::standard();
+let reg = standard_registry();
 let delay = reg.create("dly").unwrap();
 println!("{}: {} in, {} out", delay.info().name, delay.info().sig.inputs, delay.info().sig.outputs);
 ```
 
 ## Nested graphs
 
-A `Graph` implements `Processor`, so any graph can be a node inside another
+A `Graph` implements `Node`, so any graph can be a node inside another
 graph. The demo project uses this to build self-contained instrument channels
 (synth + level/pan in one node) and mix buses (mixer + dynamics + gain):
 
 ```rust
-use trem::graph::{Graph, Processor, ParamGroup, GroupHint};
-use trem::dsp;
+use trem::graph::{Graph, ParamGroup, GroupHint};
+use trem_dsp::standard as dsp;
 
 let mut ch = Graph::labeled(512, "lead");
 let osc = ch.add_node(Box::new(dsp::Oscillator::new(dsp::Waveform::Saw)));
@@ -301,7 +311,7 @@ ch.set_output(gain, 2);
 let g = ch.add_group(ParamGroup { id: 0, name: "Channel", hint: GroupHint::Level });
 ch.expose_param_in_group(gain, 0, "Level", g);
 
-// Now `ch` acts as a single stereo-output Processor
+// Now `ch` acts as a single stereo-output node
 assert_eq!(ch.info().sig.outputs, 2);
 ```
 
@@ -311,13 +321,13 @@ trail shows your current position (e.g. `Graph > Lead > Oscillator`).
 
 ## Examples
 
-Runnable examples live in `crates/trem/examples/`:
+Runnable examples:
 
 ```bash
-cargo run -p trem --example offline_render   # render a pattern to samples
-cargo run -p trem --example euclidean_rhythm  # generate and print euclidean patterns
-cargo run -p trem --example xenharmonic       # explore tuning systems
-cargo run -p trem --example custom_processor  # implement your own Processor
+cargo run -p trem --example euclidean_rhythm   # generate and print euclidean patterns
+cargo run -p trem --example xenharmonic        # explore tuning systems
+cargo run -p trem-dsp --example offline_render # render a pattern to samples (core + stock DSP)
+cargo run -p trem-dsp --example custom_processor # custom Node + stock oscillator
 ```
 
 ## Building the library only
@@ -335,14 +345,15 @@ cargo test --workspace
 ## Benchmarks
 
 ```bash
-cargo bench -p trem          # core, DSP, and graph benchmarks
+cargo bench -p trem          # core and graph benchmarks
+cargo bench -p trem-dsp      # DSP / graph node benchmarks
 cargo bench -p trem-tui      # spectrum analysis benchmarks
 ```
 
 ## Using as a library
 
 ```rust
-use trem::dsp::{Oscillator, Adsr, Gain, Waveform};
+use trem_dsp::{Adsr, Gain, Oscillator, Waveform};
 use trem::graph::Graph;
 use trem::pitch::Tuning;
 use trem::event::NoteEvent;
@@ -373,7 +384,8 @@ let audio = trem::render::render_pattern(
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Proposals and work
+lifecycle: [flow/README.md](flow/README.md).
 
 ## Name
 

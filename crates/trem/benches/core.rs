@@ -288,28 +288,44 @@ mod sig {
 
 mod registry {
     use divan::Bencher;
-    use trem::registry::Registry;
+    use trem::graph::{Node, NodeInfo, ProcessContext, Sig};
+    use trem::registry::{Category, Registry};
 
-    #[divan::bench]
-    fn build_standard(bencher: Bencher) {
-        bencher.bench(Registry::standard);
+    struct Stub;
+
+    impl Node for Stub {
+        fn info(&self) -> NodeInfo {
+            NodeInfo {
+                name: "stub",
+                sig: Sig::MONO,
+                description: "",
+            }
+        }
+        fn process(&mut self, _ctx: &mut ProcessContext) {}
+        fn reset(&mut self) {}
     }
 
     #[divan::bench]
-    fn create_osc(bencher: Bencher) {
-        let reg = Registry::standard();
-        bencher.bench(|| reg.create("osc"));
+    fn register_and_build(bencher: Bencher) {
+        bencher.bench(|| {
+            let mut r = Registry::new();
+            r.register("x", "X", Category::Utility, || Box::new(Stub));
+            r
+        });
     }
 
     #[divan::bench]
-    fn create_syn(bencher: Bencher) {
-        let reg = Registry::standard();
-        bencher.bench(|| reg.create("syn"));
+    fn create_after_register(bencher: Bencher) {
+        let mut reg = Registry::new();
+        reg.register("x", "X", Category::Utility, || Box::new(Stub));
+        bencher.bench(|| reg.create("x"));
     }
 
     #[divan::bench]
-    fn lookup_all_tags(bencher: Bencher) {
-        let reg = Registry::standard();
+    fn lookup_tags(bencher: Bencher) {
+        let mut reg = Registry::new();
+        reg.register("a", "A", Category::Utility, || Box::new(Stub));
+        reg.register("b", "B", Category::Utility, || Box::new(Stub));
         bencher.bench(|| reg.tags());
     }
 }

@@ -1,16 +1,18 @@
-//! CLI: default is the synth TUI; **`trem rung …`** for clip tools.
+//! CLI: default is the synth TUI; **`trem rung`** / **`trem clip`** for Rung JSON tools.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use trem_rung::midi::{import_midi_file, MidiImportOptions};
+use trem::rung::midi::{import_midi_file, MidiImportOptions};
 
 #[derive(Parser)]
 #[command(
     name = "trem",
-    about = "Mathematical music engine — terminal UI and clip utilities",
+    version,
+    about = "Mathematical music engine — terminal UI and Rung clip tools",
     subcommand_required = false
 )]
 pub struct Cli {
@@ -23,6 +25,7 @@ pub enum Commands {
     /// Pattern + graph terminal UI (synth demo; same as bare `trem`)
     Tui,
     /// Rung clip interchange (.rung.json) — import, edit
+    #[command(visible_alias = "clip")]
     Rung {
         #[command(subcommand)]
         sub: RungCommands,
@@ -35,7 +38,7 @@ pub enum RungCommands {
     Import {
         /// Input .mid path
         input: PathBuf,
-        /// Output path (default: <input stem>.rung.json)
+        /// Output path, or `-` for stdout (default: `<input stem>.rung.json` next to the input)
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Added to every MIDI note number → `ClipNote::class`
@@ -51,17 +54,20 @@ pub enum RungCommands {
 
 pub fn run_rung_import(input: PathBuf, output: Option<PathBuf>, class_offset: i32) -> Result<()> {
     let bytes = fs::read(&input).with_context(|| format!("read {}", input.display()))?;
-    let file = import_midi_file(
-        &bytes,
-        MidiImportOptions {
-            class_offset,
-            ..MidiImportOptions::default()
-        },
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let file = import_midi_file(&bytes, MidiImportOptions { class_offset })
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let json = file
         .to_json_pretty()
         .map_err(|e| anyhow::anyhow!("serialize: {e}"))?;
+
+    if output.as_ref().is_some_and(|p| p.as_os_str() == "-") {
+        let mut out = io::stdout().lock();
+        out.write_all(json.as_bytes())
+            .with_context(|| "write stdout")?;
+        out.write_all(b"\n").with_context(|| "write stdout")?;
+        eprintln!("{} notes → stdout", file.clip.notes.len());
+        return Ok(());
+    }
 
     let out_path = output.unwrap_or_else(|| default_rung_path(&input));
     if let Some(parent) = out_path.parent() {
