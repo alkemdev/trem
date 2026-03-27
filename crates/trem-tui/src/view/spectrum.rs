@@ -20,7 +20,6 @@ use realfft::num_complex::Complex;
 use realfft::RealFftPlanner;
 use std::f64::consts::PI;
 use std::sync::Arc;
-use std::time::Instant;
 
 const FFT_SIZE: usize = 512;
 /// Minimum linear ref for dB mapping (avoids log blow-ups; keep very small).
@@ -40,7 +39,7 @@ pub struct SpectrumAnalyzerState {
     fft_input: Vec<f64>,
     spectrum: Vec<Complex<f64>>,
     smoothed: Vec<f64>,
-    last_tick: Option<Instant>,
+    last_tick: Option<f64>,
     fft: Option<Arc<dyn realfft::RealToComplex<f64>>>,
 }
 
@@ -68,7 +67,7 @@ impl SpectrumAnalyzerState {
 
     /// Windowed mono → FFT magnitudes → peak decay; returns smoothed bins **including** DC at index 0
     /// (renderers usually skip `[1..]`), plus [`Self::norm_ref`] for display scaling (same frame).
-    pub fn analyze(&mut self, samples: &[f32], now: Instant) -> (&[f64], f64) {
+    pub fn analyze(&mut self, samples: &[f32], now_seconds: f64) -> (&[f64], f64) {
         let stereo_pairs = samples.len() / 2;
         if stereo_pairs < 4 {
             self.smoothed.clear();
@@ -119,10 +118,10 @@ impl SpectrumAnalyzerState {
 
         let dt = self
             .last_tick
-            .map(|t| now.duration_since(t).as_secs_f64())
+            .map(|t| (now_seconds - t).max(0.0))
             .unwrap_or(1.0 / 60.0)
             .clamp(1.0 / 480.0, 0.35);
-        self.last_tick = Some(now);
+        self.last_tick = Some(now_seconds);
 
         let half = n / 2;
         // Raw peak (skip DC): drives the display normalization envelope.
@@ -342,11 +341,11 @@ mod tests {
             buf[i * 2] = 0.5;
             buf[i * 2 + 1] = 0.5;
         }
-        let t0 = Instant::now();
+        let t0 = 1000.0;
         let (s0, _) = st.analyze(&buf, t0);
         let m0 = s0.to_vec();
         let peak0 = m0[1..].iter().copied().fold(0.0f64, f64::max);
-        let t1 = t0 + std::time::Duration::from_millis(80);
+        let t1 = t0 + 0.080;
         let zeros = vec![0.0f32; 512 * 2];
         let (s1, _) = st.analyze(&zeros, t1);
         let peak1 = s1[1..].iter().copied().fold(0.0f64, f64::max);

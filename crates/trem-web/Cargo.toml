@@ -1,0 +1,17 @@
+[package]
+name = "trem-web"
+version = "0.1.0"
+edition = "2021"
+description = "WebAssembly entrypoint for the trem TUI using Ratzilla"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = { workspace = true }
+trem = { workspace = true }
+trem-cpal = { workspace = true }
+trem-tui = { workspace = true }
+ratzilla = { workspace = true }
+wasm-bindgen = { workspace = true }
+console_error_panic_hook = { workspace = true }
