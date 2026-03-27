@@ -31,7 +31,10 @@ pub enum Command {
     /// Set tempo in beats per minute for position reporting and scheduling.
     SetBpm(f64),
     /// Replace the repeating pattern used when playing.
-    LoadEvents(Vec<TimedEvent>),
+    LoadEvents {
+        events: Vec<TimedEvent>,
+        loop_len: usize,
+    },
     /// Trigger a note on the given synth voice for the current audio block.
     NoteOn {
         frequency: f64,

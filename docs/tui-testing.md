@@ -6,9 +6,7 @@ Strategy: **fast deterministic tests in CI** (keyboard + widget buffers) plus an
 
 All routing goes through [`handle_key`](../crates/trem-tui/src/input.rs) + [`InputContext`](../crates/trem-tui/src/input.rs).
 
-| File | Purpose |
-|------|---------|
-| [`crates/trem-tui/tests/keyboard_flows.rs`](../crates/trem-tui/tests/keyboard_flows.rs) | User-visible flows: global chords, help overlay, sequencer NAV/EDIT, graph NAV/EDIT, Ctrl chords |
+- [`crates/trem-tui/tests/keyboard_flows.rs`](../crates/trem-tui/tests/keyboard_flows.rs) — user-visible flows: global chords, fullscreen toggle, help overlay, sequencer NAV/EDIT, graph NAV/EDIT, Ctrl chords
 
 The module doc at the top of `keyboard_flows.rs` has a **flow map table** — update it when bindings change.
 
@@ -21,17 +19,13 @@ cargo test -p trem-tui                  # all trem-tui tests (unit + integration
 
 ## 2. Widget labels (integration)
 
-| File | Purpose |
-|------|---------|
-| [`crates/trem-tui/tests/widget_labels.rs`](../crates/trem-tui/tests/widget_labels.rs) | **`HelpOverlay`**, **Info** sidebar (incl. perf at bottom), transport tabs |
+- [`crates/trem-tui/tests/widget_labels.rs`](../crates/trem-tui/tests/widget_labels.rs) — **`HelpOverlay`**, fullscreen HUD, **Info** sidebar (incl. perf at bottom), transport tabs
 
 ```bash
 cargo test -p trem-tui --test widget_labels
 ```
 
-| File | Purpose |
-|------|---------|
-| [`crates/trem-tui/src/view/transport.rs`](../crates/trem-tui/src/view/transport.rs) (`#[cfg(test)]`) | Transport row: `SEQ`, `GRAPH`, `[…]` active tab |
+- [`crates/trem-tui/src/view/transport.rs`](../crates/trem-tui/src/view/transport.rs) (`#[cfg(test)]`) — transport row: `SEQ`, `GRAPH`, `[…]` active tab
 
 ```bash
 cargo test -p trem-tui transport::
@@ -39,7 +33,7 @@ cargo test -p trem-tui transport::
 
 Other crates: graph scroll tests, spectrum tests, etc. — `cargo test -p trem-tui`.
 
-Layout: `App::draw` uses `info_sidebar_width` (unit-tested in `app::sidebar_width_tests`) so narrow terminals still leave space for the main editor.
+Layout is primarily covered by widget-buffer tests and focused integration tests; shared shell changes should add or update those tests instead of relying on PTY scraping.
 
 ## 3. PTY smoke (optional, local)
 

@@ -68,7 +68,10 @@ impl RungPlayback {
 
     pub fn reload_clip(&mut self, clip: &Clip) {
         let events = clip_to_timed_events(clip, self.sample_rate, self.bpm);
-        self.bridge.send(Command::LoadEvents(events));
+        self.bridge.send(Command::LoadEvents {
+            loop_len: clip_loop_len_samples(clip, self.sample_rate, self.bpm),
+            events,
+        });
     }
 
     pub fn set_bpm(&mut self, bpm: f64, clip: &Clip) {
@@ -171,6 +174,18 @@ fn clip_to_timed_events(clip: &Clip, sample_rate: f64, bpm: f64) -> Vec<TimedEve
 
     events.sort_by(cmp_timed_event_delivery);
     events
+}
+
+fn clip_loop_len_samples(clip: &Clip, sample_rate: f64, bpm: f64) -> usize {
+    clip.length_beats
+        .map(|beats| beat_to_samples(beats.rational(), sample_rate, bpm))
+        .unwrap_or_else(|| {
+            clip.notes
+                .iter()
+                .map(|note| beat_to_samples(note.t_off.rational(), sample_rate, bpm))
+                .max()
+                .unwrap_or(0)
+        })
 }
 
 #[cfg(test)]

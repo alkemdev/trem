@@ -1,6 +1,6 @@
 //! Keyboard routing for **modal editors**: pattern grid and signal graph. Each editor
 //! owns a key family; [`InputContext`] disambiguates global chords (Tab, `?`, Esc) vs
-//! nested-graph exit. **SEQ navigate:** **Enter** opens the fullscreen piano roll; **`e`** toggles grid note edit.
+//! nested-graph exit. **SEQ navigate:** **Enter** opens the piano roll; **`e`** toggles grid note edit.
 //! Future editors: see repository `docs/tui-editor-roadmap.md`.
 //!
 //! Full bindings: **`?`** help overlay. Sidebar shows a short **popular** subset only.
@@ -61,23 +61,29 @@ pub struct InputContext<'a> {
     pub help_open: bool,
 }
 
-/// Bottom pane visualizer: stereo waveform or frequency spectrum.
+/// Optional bottom feedback panel for audio previews.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BottomPane {
+    /// No always-on feedback panel; keep the canvas as large as possible.
+    Hidden,
+    /// Stereo waveform / scope.
     Waveform,
+    /// Frequency-domain analyzer.
     Spectrum,
 }
 
 impl BottomPane {
     pub fn next(self) -> Self {
         match self {
+            BottomPane::Hidden => BottomPane::Waveform,
             BottomPane::Waveform => BottomPane::Spectrum,
-            BottomPane::Spectrum => BottomPane::Waveform,
+            BottomPane::Spectrum => BottomPane::Hidden,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            BottomPane::Hidden => "PANEL OFF",
             BottomPane::Waveform => "SCOPE",
             BottomPane::Spectrum => "SPECTRUM",
         }
@@ -106,9 +112,11 @@ pub enum Action {
     Quit,
     /// Tab: next editor.
     CycleEditor,
+    /// `Shift+Enter`: toggle canvas-first fullscreen shell.
+    ToggleFullscreen,
     /// `e` / Esc: toggle edit mode (when not in help / graph-exit).
     ToggleEdit,
-    /// SEQ navigate: **Enter** — fullscreen MIDI piano roll (apply on Esc).
+    /// SEQ navigate: **Enter** — open the MIDI piano roll (apply on Esc).
     OpenPatternRoll,
     TogglePlay,
     MoveUp,
@@ -142,6 +150,8 @@ pub enum Action {
     ExitGraph,
     /// `?` toggles full key reference overlay.
     ToggleHelp,
+    /// `i` returns the sidebar to contextual info.
+    ShowInfoPane,
 }
 
 /// Maps a key to an action; release events and unbound keys yield `None`.
@@ -151,10 +161,11 @@ pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
     }
 
     if ctx.help_open {
-        return match key.code {
-            KeyCode::Esc | KeyCode::Char('?') => Some(Action::ToggleHelp),
-            _ => None,
-        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('?') => return Some(Action::ToggleHelp),
+            KeyCode::Char('i') => return Some(Action::ShowInfoPane),
+            _ => {}
+        }
     }
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -170,6 +181,7 @@ pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
 
     if key.modifiers.contains(KeyModifiers::SHIFT) {
         match key.code {
+            KeyCode::Enter => return Some(Action::ToggleFullscreen),
             KeyCode::Left => return Some(Action::ParamFineDown),
             KeyCode::Right => return Some(Action::ParamFineUp),
             KeyCode::Char('U') => return Some(Action::Redo),
@@ -180,6 +192,7 @@ pub fn handle_key(key: KeyEvent, ctx: &InputContext<'_>) -> Option<Action> {
     match key.code {
         KeyCode::Tab => return Some(Action::CycleEditor),
         KeyCode::Char('?') => return Some(Action::ToggleHelp),
+        KeyCode::Char('i') => return Some(Action::ShowInfoPane),
         KeyCode::Char(' ') => return Some(Action::TogglePlay),
         KeyCode::Up => return Some(Action::MoveUp),
         KeyCode::Down => return Some(Action::MoveDown),

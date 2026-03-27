@@ -1,0 +1,18 @@
+{
+  "clip": {
+    "id": "snare",
+    "name": "Snare",
+    "length_beats": "16",
+    "kind": "drum_pattern"
+  },
+  "notes": [
+    { "pitch": 38, "start": "1", "length": "1/8", "velocity": 116 },
+    { "pitch": 38, "start": "3", "length": "1/8", "velocity": 124 },
+    { "pitch": 38, "start": "5", "length": "1/8", "velocity": 118 },
+    { "pitch": 38, "start": "7", "length": "1/8", "velocity": 124 },
+    { "pitch": 38, "start": "9", "length": "1/8", "velocity": 116 },
+    { "pitch": 38, "start": "11", "length": "1/8", "velocity": 124 },
+    { "pitch": 38, "start": "13", "length": "1/8", "velocity": 118 },
+    { "pitch": 38, "start": "15", "length": "1/8", "velocity": 126 }
+  ]
+}

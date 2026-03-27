@@ -34,8 +34,10 @@ cargo run
   Each node declares its own inputs, outputs, and parameters. Graphs nest
   recursively — a [`Graph`](https://docs.rs/trem/latest/trem/graph/struct.Graph.html) is itself a `Node`, so complex instruments and
   buses are single composable nodes.
-- **Library first.** The core `trem` crate has zero I/O dependencies. It
-  compiles to WASM. It renders offline to sample buffers when paired with
+- **Library first.** The core `trem` crate keeps required dependencies minimal. It
+  compiles to WASM with default features. **`trem-mio`** (import **`trem_mio`**) holds planar WAV/FLAC
+  I/O (`hound`, `flacenc`, `claxon`); browser **`wasm32`** hosts should use in-memory APIs in
+  [`trem_mio::audio`](https://docs.rs/trem-mio/latest/trem_mio/audio/index.html) (`from_bytes`, `write_planar_to_vec`, `open_memory`). Offline rendering produces sample buffers when paired with
   **`trem-dsp`** (or your own `Node` implementations). The TUI and audio driver are
   separate crates that depend on it.
 
@@ -71,8 +73,9 @@ cargo run
 
 **trem** — Core library. Rational arithmetic, pitch/scale systems, temporal
 trees, audio processing graphs, Euclidean rhythm generation, grid sequencer,
-[`Registry`](https://docs.rs/trem/latest/trem/registry/struct.Registry.html) types, and offline rendering. No runtime dependencies beyond
-`bitflags` and `num-rational`.
+[`Registry`](https://docs.rs/trem/latest/trem/registry/struct.Registry.html) types, and offline rendering. Stays lean (`bitflags`, `num-*`).
+
+**trem-mio** — WAV/FLAC file I/O today; room for images and other media. Depends on **`trem`** only for [`signal`](https://docs.rs/trem/latest/trem/signal/index.html). Not the Tokio **`mio`** crate.
 
 **trem-dsp** — Stock **`Node`** implementations for the graph (oscillators, envelopes,
 filters, dynamics, effects, drum synths, nested voices) plus
@@ -119,7 +122,7 @@ Re-download sources: `python3 scripts/fetch_wtc_example_midis.py`
 
 Full prerequisites and import details: **[docs/install.md](docs/install.md)**.
 
-The default graph and pattern live in **`src/demo/`** (`levels.rs` for gains/FX, `graph.rs` for routing, `pattern.rs` for the grid). `src/main.rs` is thin I/O glue.
+The default graph and pattern live in **`crates/trem-bin/src/demo/`** (`levels.rs` for gains/FX, `graph.rs` for routing, `pattern.rs` for the grid). **`crates/trem-bin/src/main.rs`** is thin CLI + I/O glue.
 
 This launches the demo project: a **~146 BPM** loop (32-step pattern) with a **dense
 pentatonic arp** on the lead (triangle-heavy dual osc, light wavetable, warm filter),
@@ -324,8 +327,7 @@ trail shows your current position (e.g. `Graph > Lead > Oscillator`).
 Runnable examples:
 
 ```bash
-cargo run -p trem --example euclidean_rhythm   # generate and print euclidean patterns
-cargo run -p trem --example xenharmonic        # explore tuning systems
+cargo run -p trem-mio --example save_planar_wav    # planar stereo WAV (`trem_mio::audio`)
 cargo run -p trem-dsp --example offline_render # render a pattern to samples (core + stock DSP)
 cargo run -p trem-dsp --example custom_processor # custom Node + stock oscillator
 ```

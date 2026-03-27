@@ -1,0 +1,23 @@
+[project]
+name = "easybeat"
+tempo_bpm = 146
+root_scene = "easybeat"
+
+[ports.main_out]
+kind = "audio_out"
+channels = 2
+
+[refs.scenes]
+easybeat = "scenes/easybeat.toml"
+
+[refs.clips]
+bass = "clips/bass.json"
+hat = "clips/hat.json"
+kick = "clips/kick.json"
+lead = "clips/lead.json"
+snare = "clips/snare.json"
+
+[refs.graphs]
+bass = "graphs/bass.json"
+lead = "graphs/lead.json"
+main_mix = "graphs/main_mix.json"

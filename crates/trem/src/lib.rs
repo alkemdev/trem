@@ -20,7 +20,7 @@
 //! - [`euclidean`] — Euclidean rhythm generation (Toussaint 2005)
 //! - [`render`] — Offline rendering of trees/grids through audio graphs ([`render::render_captures`],
 //!   [`render::loop_timed_events`] for repeating patterns)
-//! - [`wav`] (feature **`wav`**) — IEEE float WAV file write ([`wav::write_stereo_wav_f32`])
+//! - [`signal`] — Typed [`signal::SampleRateHz`], [`signal::ChannelCount`] for PCM dimensions (codec I/O: **`trem_mio::audio`**)
 //! - **`rung`** (features **`rung`** / **`midi`**) — Rung clip JSON (`Clip`, `RungFile`) and optional
 //!   SMF import (`midi` submodule)
 
@@ -32,11 +32,9 @@ pub mod math;
 pub mod pitch;
 pub mod registry;
 pub mod render;
+pub mod signal;
 pub mod time;
 pub mod tree;
 
 #[cfg(feature = "rung")]
 pub mod rung;
-
-#[cfg(feature = "wav")]
-pub mod wav;

@@ -1,0 +1,49 @@
+{
+  "graph": {
+    "id": "bass",
+    "name": "Bass Voice"
+  },
+  "nodes": [
+    {
+      "id": "voice",
+      "label": "Analog Voice",
+      "type": "standard",
+      "tag": "syn",
+      "params": {
+        "cutoff_hz": 620.0,
+        "drive": 0.25,
+        "env_amount": 0.5
+      }
+    },
+    {
+      "id": "grit",
+      "label": "Drive",
+      "type": "standard",
+      "tag": "dst",
+      "inputs": ["voice"],
+      "params": {
+        "drive": 0.22,
+        "mix": 0.3,
+        "shape": 0.28
+      }
+    },
+    {
+      "id": "filter",
+      "label": "Low Pass",
+      "type": "standard",
+      "tag": "lpf",
+      "inputs": ["grit"],
+      "params": {
+        "cutoff_hz": 780.0,
+        "q": 0.9
+      }
+    },
+    {
+      "id": "out",
+      "label": "Output",
+      "type": "output",
+      "port": "mono",
+      "inputs": ["filter"]
+    }
+  ]
+}

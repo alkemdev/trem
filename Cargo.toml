@@ -1,12 +1,15 @@
 [workspace]
 members = ["crates/*"]
 resolver = "2"
+default-members = ["crates/trem-bin"]
 
 [workspace.dependencies]
 trem = { path = "crates/trem", version = "0.1.0" }
 trem-dsp = { path = "crates/trem-dsp", version = "0.1.0" }
 trem-rta = { path = "crates/trem-rta", version = "0.1.0" }
 trem-tui = { path = "crates/trem-tui", version = "0.1.0" }
+trem-mio = { path = "crates/trem-mio", version = "0.1.0" }
+trem-project = { path = "crates/trem-project", version = "0.1.0" }
 ratatui = "0.30"
 crossterm = "0.28"
 cpal = "0.17"
@@ -14,39 +17,3 @@ rtrb = "0.3"
 anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }
 num-rational = "0.4"
-
-[package]
-name = "trem-bin"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "trem — terminal synth, graph editor, and Rung clip CLI"
-repository = "https://github.com/alkemdev/trem"
-readme = "README.md"
-documentation = "https://docs.rs/trem-bin"
-exclude = [
-    "crates/",
-    "docs/",
-    "flow/",
-    "tests/",
-    ".cursor/",
-    ".github/",
-    "scripts/",
-    "AGENTS.md",
-    "CONTRIBUTING.md",
-]
-
-[[bin]]
-name = "trem"
-path = "src/main.rs"
-
-[dependencies]
-trem = { workspace = true, features = ["rung", "midi"] }
-trem-dsp = { workspace = true }
-trem-rta = { workspace = true }
-trem-tui = { workspace = true }
-anyhow = { workspace = true }
-clap = { workspace = true }
-num-rational = { workspace = true }
-crossterm = { workspace = true }
-ratatui = { workspace = true }

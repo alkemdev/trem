@@ -159,10 +159,10 @@ pub struct GraphViewWidget<'a> {
 
 impl<'a> Widget for GraphViewWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.breadcrumb.is_empty() {
-            " Graph ".to_string()
+        let title = if let Some(current) = self.breadcrumb.last() {
+            format!(" Graph · {} ", current)
         } else {
-            format!(" Graph > {} ", self.breadcrumb.join(" > "))
+            " Graph ".to_string()
         };
         let block = Block::new()
             .borders(Borders::ALL)
@@ -728,7 +728,7 @@ fn render_param_row(
     buf.set_line(x, y, &line, width);
 }
 
-fn format_param_value(value: f64, desc: &ParamDescriptor) -> String {
+pub(crate) fn format_param_value(value: f64, desc: &ParamDescriptor) -> String {
     match desc.unit {
         ParamUnit::Hertz => {
             if value >= 10000.0 {

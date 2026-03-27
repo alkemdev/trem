@@ -16,7 +16,7 @@ use trem::graph::{
 ///
 /// # Examples
 ///
-/// Registry tag: **`duk`**. See the `extreme_sidechain` example in the `trem` crate (`cargo run -p trem --example extreme_sidechain`).
+/// Registry tag: **`duk`**. Use in a graph from the TUI demo patch or your own `Graph` wiring.
 pub struct SidechainDucker {
     env: f32,
     depth: f64,

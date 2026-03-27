@@ -5,6 +5,9 @@
 //! - [`interfaces`] — re-exports from `trem` for implementing [`Node`](trem::graph::Node) nodes.
 //! - [`standard`] — oscillators, envelopes, effects, drums, nested composite graphs, etc.
 //!
+//! Planar WAV/FLAC file I/O lives in **`trem-mio`** (`trem_mio::audio`, `trem_mio::wav`);
+//! PCM units in **`trem::signal`**.
+//!
 //! ## Registry
 //!
 //! Fill a [`trem::registry::Registry`] with all built-in tags:
@@ -19,9 +22,6 @@
 //! ```
 //!
 //! Or use [`standard_registry`] for an empty registry plus one call.
-
-#[cfg(feature = "export")]
-pub mod export;
 
 pub mod interfaces;
 pub mod standard;

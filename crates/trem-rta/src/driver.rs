@@ -83,11 +83,15 @@ impl CallbackState {
                     self.playhead = 0;
                     self.graph.reset();
                 }
-                Command::LoadEvents(mut events) => {
+                Command::LoadEvents {
+                    mut events,
+                    loop_len,
+                } => {
                     let old_len = self.pattern_len;
                     std::mem::swap(&mut self.pattern_events, &mut events);
                     drop(events);
-                    self.pattern_len = Self::pattern_len_from_events(&self.pattern_events);
+                    self.pattern_len =
+                        loop_len.max(Self::pattern_len_from_events(&self.pattern_events));
                     if self.pattern_len == 0 {
                         self.playhead = 0;
                     } else if old_len == 0 {

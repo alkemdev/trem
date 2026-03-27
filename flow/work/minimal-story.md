@@ -11,7 +11,7 @@ can change something musical without reading architecture docs, and understand t
 
 ## User story
 
-1. **Hear something immediately** — Run `cargo run` (or `trem`). Audio plays the default
+1. **Hear something immediately** — Run `cargo run` (or `cargo run -p trem-bin`, or `trem`). Audio plays the default
    demo pattern and graph; transport shows play state. No config file required.
 2. **Change the pattern** — From **SEQ**, move the cursor, **Enter** a step, edit a note
    or gate, **Esc** back; the next loop reflects the change.
@@ -23,7 +23,7 @@ can change something musical without reading architecture docs, and understand t
 ## Acceptance criteria (v0)
 
 - [ ] `cargo run` works on a clean clone after `docs/install.md` prerequisites (ALSA on Linux, etc.).
-- [x] Default demo is audibly balanced from shared constants — see **`src/demo/levels.rs`** (single source of truth for trims/gains).
+- [x] Default demo is audibly balanced from shared constants — see **`crates/trem-bin/src/demo/levels.rs`** (single source of truth for trims/gains).
 - [x] Help overlay (**`?`**) — **GLOBAL** block lists **Tab** (next editor) and **Space** (play/pause) first (`crates/trem-tui/src/view/help.rs`).
 - [x] **`flow/done/`** holds archived completion write-ups; **`docs/`** stays reference-only (moved `documentation-and-examples-pass` here).
 
@@ -57,8 +57,8 @@ can change something musical without reading architecture docs, and understand t
 
 ### Dependencies (sanity)
 
-- **`trem`**: `num-integer` used by `math::Rational` (`lcm`). Optional `serde` / `rung` / `wav` / `midi` are feature-gated.
-- **`trem` dev-deps**: `clap` only needed for **`extreme_sidechain`** example; keep.
+- **`trem`**: `num-integer` used by `math::Rational` (`lcm`). Optional `serde` / `rung` / `midi` are feature-gated. Codec file I/O lives in **`trem-mio`** (feature **`audio`**, default on there).
+- **`trem` dev-deps**: `divan` for benchmarks; `trem-dsp` / `trem-rta` for integration-style tests where needed.
 
 ### Not removed (needs explicit product call)
 

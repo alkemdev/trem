@@ -1,0 +1,88 @@
+[scene]
+id = "easybeat"
+name = "easybeat"
+output = "main_out"
+timeline_beats = "16"
+
+[[lanes]]
+id = "kick"
+label = "Kick"
+kind = "instrument"
+performer = { type = "standard", tag = "kick" }
+
+[[lanes.blocks]]
+id = "kick_clip"
+name = "Kick Clip"
+start = "0"
+length = "16"
+type = "clip"
+clip = "kick"
+
+[[lanes]]
+id = "snare"
+label = "Snare"
+kind = "instrument"
+performer = { type = "standard", tag = "snr" }
+
+[[lanes.blocks]]
+id = "snare_clip"
+name = "Snare Clip"
+start = "0"
+length = "16"
+type = "clip"
+clip = "snare"
+
+[[lanes]]
+id = "hat"
+label = "Hat"
+kind = "instrument"
+performer = { type = "standard", tag = "hat" }
+
+[[lanes.blocks]]
+id = "hat_clip"
+name = "Hat Clip"
+start = "0"
+length = "16"
+type = "clip"
+clip = "hat"
+
+[[lanes]]
+id = "bass"
+label = "Bass"
+kind = "instrument"
+performer = { type = "graph", graph = "bass" }
+
+[[lanes.blocks]]
+id = "bass_clip"
+name = "Bass Clip"
+start = "0"
+length = "16"
+type = "clip"
+clip = "bass"
+
+[[lanes]]
+id = "lead"
+label = "Lead"
+kind = "instrument"
+performer = { type = "graph", graph = "lead" }
+
+[[lanes.blocks]]
+id = "lead_clip"
+name = "Lead Clip"
+start = "0"
+length = "16"
+type = "clip"
+clip = "lead"
+
+[[lanes]]
+id = "main"
+label = "Main"
+kind = "bus"
+
+[[lanes.blocks]]
+id = "main_mix"
+name = "Main Mix"
+start = "0"
+length = "16"
+type = "graph"
+graph = "main_mix"

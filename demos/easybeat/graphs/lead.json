@@ -1,0 +1,50 @@
+{
+  "graph": {
+    "id": "lead",
+    "name": "Lead Voice"
+  },
+  "nodes": [
+    {
+      "id": "voice",
+      "label": "Lead Voice",
+      "type": "standard",
+      "tag": "ldv",
+      "params": {
+        "attack_s": 0.05,
+        "cutoff_hz": 1900.0,
+        "glide_s": 0.028
+      }
+    },
+    {
+      "id": "flutter",
+      "label": "Flutter Delay",
+      "type": "standard",
+      "tag": "dly",
+      "inputs": ["voice"],
+      "params": {
+        "delay_ms": 38.0,
+        "feedback": 0.4,
+        "mix": 0.22
+      }
+    },
+    {
+      "id": "air",
+      "label": "Plate",
+      "type": "standard",
+      "tag": "vrb",
+      "inputs": ["flutter"],
+      "params": {
+        "damp": 0.62,
+        "mix": 0.1,
+        "size": 0.3
+      }
+    },
+    {
+      "id": "out",
+      "label": "Output",
+      "type": "output",
+      "port": "stereo",
+      "inputs": ["air"]
+    }
+  ]
+}

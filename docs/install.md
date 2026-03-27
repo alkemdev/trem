@@ -23,9 +23,10 @@ cd trem
 cargo run
 ```
 
-- **Binary name:** `trem` (workspace package `trem-bin`). **Default:** running `trem` or `cargo run` starts the **synth / pattern TUI**. Use **`trem rung …`** (alias **`trem clip …`**) for MIDI import and Rung clip edit; **`trem tui`** is the same as bare `trem`. **`trem --version`** prints the binary version.
+- **Layout:** the repo root is a **virtual Cargo workspace** (no root `src/`). The **`trem`** executable is built from **`crates/trem-bin/`**; `cargo run` selects it via workspace **`default-members`**.
+- **Binary name:** `trem` (package **`trem-bin`**). **Default:** running `trem` or `cargo run` starts the **synth / pattern TUI**. Use **`trem rung …`** (alias **`trem clip …`**) for MIDI import and Rung clip edit; **`trem tui`** is the same as bare `trem`. **`trem --version`** prints the binary version.
 - **First run** compiles dependencies; later runs are fast.
-- **Demo patch** lives in `src/demo/`; `src/main.rs` wires CLI + TUI.
+- **Demo patch** lives in **`crates/trem-bin/src/demo/`**; **`crates/trem-bin/src/main.rs`** wires CLI + TUI.
 
 ### Rung clip tools (`trem rung`)
 

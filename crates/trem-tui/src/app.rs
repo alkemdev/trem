@@ -2,44 +2,38 @@
 //!
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
+use crate::focus::{EscBehavior, FocusFrame, FocusStack};
 use crate::input::{self, Action, BottomPane, Editor, InputContext, Mode};
-use crate::project::ProjectData;
+use crate::project::{self, ProjectWorkspace};
+use crate::view::context::ContextPanel;
+use crate::view::fullscreen::FullscreenHud;
 use crate::view::graph::GraphViewWidget;
 use crate::view::help::HelpOverlay;
-use crate::view::info::InfoView;
+use crate::view::overview::OverviewView;
 use crate::view::pattern::PatternView;
 use crate::view::perf::HostStatsSnapshot;
 use crate::view::scope::ScopeView;
 use crate::view::spectrum::{SpectrumAnalyzerState, SpectrumView};
+use crate::view::status::StatusBar;
 use crate::view::transport::TransportView;
 
+use num_rational::Rational64;
 use trem::event::NoteEvent;
 use trem::graph::{Edge, GraphSnapshot, ParamDescriptor};
 use trem::math::Rational;
 use trem::pitch::Pitch;
+use trem::pitch::Tuning;
 use trem_rta::{Bridge, Command, Notification, ScopeFocus};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::widgets::Clear;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
 const GATE_PRESETS: [(i64, u64); 4] = [(1, 4), (1, 2), (3, 4), (7, 8)];
-
-/// Minimum width for the pattern/graph pane; sidebar shrinks first.
-const MAIN_EDITOR_MIN_WIDTH: u16 = 14;
-
-/// Sidebar width (cursor/project/keys + perf stacked) from `outer[1].width`.
-fn info_sidebar_width(middle_width: u16) -> u16 {
-    const MIN_SIDEBAR: u16 = 18;
-    let w = middle_width.max(MAIN_EDITOR_MIN_WIDTH + MIN_SIDEBAR);
-    let target = (u32::from(w) * 36 / 100).clamp(u32::from(MIN_SIDEBAR), 30) as u16;
-    target.min(w.saturating_sub(MAIN_EDITOR_MIN_WIDTH))
-}
 
 fn cycle_gate(current: Rational) -> Rational {
     for (i, &(n, d)) in GATE_PRESETS.iter().enumerate() {
@@ -51,6 +45,19 @@ fn cycle_gate(current: Rational) -> Rational {
     Rational::new(1, 4)
 }
 
+fn fullscreen_overlay_rect(area: Rect) -> Rect {
+    let max_width = area.width.saturating_sub(2).max(1);
+    let width = ((area.width as u32 * 2) / 5) as u16;
+    let width = width.clamp(24, 38).min(max_width);
+    let height = area.height.saturating_sub(2).max(3);
+    Rect::new(
+        area.x + area.width.saturating_sub(width),
+        area.y + 1.min(area.height.saturating_sub(1)),
+        width,
+        height,
+    )
+}
+
 /// Mutable state for the full terminal UI: pattern/graph views, audio bridge, and layout data.
 pub struct App {
     pub grid: trem::grid::Grid,
@@ -58,8 +65,10 @@ pub struct App {
     pub cursor_col: u32,
     pub mode: Mode,
     pub editor: Editor,
-    /// Full keymap overlay (`?` / Esc).
+    /// Right sidebar HELP pane (`?` toggles, `i` returns to INFO).
     pub help_open: bool,
+    /// Shared shell collapse: canvas-first view with a minimal exit HUD.
+    pub fullscreen: bool,
     pub bpm: f64,
     pub playing: bool,
     /// After the first **Play**, pattern edits sync to the audio thread even while **paused**
@@ -116,8 +125,16 @@ pub struct App {
     /// Pregenerated inner-graph snapshots from the host (`Graph::nested_ui_snapshots`), keyed by
     /// the same path the UI uses after [`Self::enter_nested_graph`] (e.g. `[lead_id]`).
     nested_graph_snapshots: HashMap<Vec<u32>, GraphSnapshot>,
-    /// Fullscreen MIDI piano roll from SEQ (**Enter** in navigate mode).
+    /// MIDI piano roll from SEQ (**Enter** in navigate mode).
     pattern_roll: Option<crate::pattern_roll::PatternRoll>,
+    /// Loaded `trem-project` workspace when running the rebuilt project shell.
+    project_workspace: Option<ProjectWorkspace>,
+    /// Current lane selection in the root scene overview.
+    overview_lane: usize,
+    /// Current block selection on the selected lane.
+    overview_block: usize,
+    /// Clip id being edited in the fullscreen roll.
+    project_roll_clip_id: Option<String>,
 }
 
 /// Saved state when diving into a nested graph node.
@@ -133,6 +150,20 @@ pub struct GraphFrame {
     pub layers: Vec<Vec<usize>>,
     pub has_children: Vec<bool>,
     pub node_descriptions: Vec<String>,
+}
+
+struct ShellContext {
+    frames: Vec<FocusFrame>,
+    focus_path: String,
+    esc_hint: Option<String>,
+    selection_summary: String,
+    actions_summary: String,
+    info_lines: Vec<String>,
+    zone: String,
+    mode: String,
+    tool: String,
+    project_mode: bool,
+    project_name: Option<String>,
 }
 
 impl App {
@@ -152,6 +183,7 @@ impl App {
             mode: Mode::Normal,
             editor: Editor::Pattern,
             help_open: false,
+            fullscreen: false,
             bpm: 120.0,
             playing: false,
             engine_pattern_active: false,
@@ -195,30 +227,605 @@ impl App {
                 .unwrap_or_default()
                 .as_nanos() as u64,
             preview_note_off: None,
-            bottom_pane: BottomPane::Spectrum,
+            bottom_pane: BottomPane::Hidden,
             graph_path: Vec::new(),
             graph_stack: Vec::new(),
             graph_has_children: Vec::new(),
             graph_breadcrumb: Vec::new(),
             nested_graph_snapshots: HashMap::new(),
             pattern_roll: None,
+            project_workspace: None,
+            overview_lane: 0,
+            overview_block: 0,
+            project_roll_clip_id: None,
         }
     }
 
-    fn pattern_roll_transport_line(&self) -> Line<'static> {
-        Line::from(vec![
-            format!("{:>4.0} BPM", self.bpm).into(),
-            "  ".into(),
-            Span::styled(
-                if self.playing { "PLAY " } else { "PAUSE" },
-                if self.playing {
-                    Style::default().fg(Color::Green)
+    /// Boots the rebuilt TUI around a `trem-project` workspace instead of the old hardcoded demo.
+    pub fn from_workspace(workspace: ProjectWorkspace, bridge: Bridge) -> Self {
+        let rows = workspace.timeline_beats_u32().max(1);
+        let cols = workspace.lane_count().max(1) as u32;
+        let instrument_names = workspace
+            .scene
+            .lanes
+            .iter()
+            .map(|lane| lane.label.clone())
+            .collect();
+        let voice_ids = project::lane_voice_ids(&workspace.scene);
+        let mut app = Self::new(
+            trem::grid::Grid::new(rows, cols),
+            Tuning::edo12().to_scale(),
+            "12-EDO".into(),
+            bridge,
+            instrument_names,
+            voice_ids,
+        );
+        app.load_workspace(workspace);
+        app
+    }
+
+    fn project_mode(&self) -> bool {
+        self.project_workspace.is_some()
+    }
+
+    fn project_name(&self) -> Option<&str> {
+        self.project_workspace
+            .as_ref()
+            .map(ProjectWorkspace::project_name)
+    }
+
+    fn load_workspace(&mut self, workspace: ProjectWorkspace) {
+        let rows = workspace.timeline_beats_u32().max(1);
+        let cols = workspace.lane_count().max(1) as u32;
+        self.grid = trem::grid::Grid::new(rows, cols);
+        self.instrument_names = workspace
+            .scene
+            .lanes
+            .iter()
+            .map(|lane| lane.label.clone())
+            .collect();
+        self.voice_ids = project::lane_voice_ids(&workspace.scene);
+        self.bpm = workspace.tempo_bpm();
+        self.playing = false;
+        self.engine_pattern_active = false;
+        self.beat_position = 0.0;
+        self.current_play_row = None;
+        self.mode = Mode::Normal;
+        self.editor = Editor::Pattern;
+        self.pattern_roll = None;
+        self.project_roll_clip_id = None;
+        self.bottom_pane = BottomPane::Hidden;
+        self.project_workspace = Some(workspace);
+        self.overview_lane = 0;
+        self.overview_block = 0;
+        self.graph_path.clear();
+        self.graph_stack.clear();
+        self.graph_breadcrumb.clear();
+        self.normalize_overview_selection();
+        self.load_project_graph_selection();
+        self.sync_project_scene();
+    }
+
+    fn sync_project_scene(&mut self) {
+        let Some(workspace) = self.project_workspace.as_ref() else {
+            return;
+        };
+        let scene = project::Scene::from_workspace(workspace);
+        self.bpm = scene.bpm;
+        self.bridge.send(Command::SetBpm(scene.bpm));
+        self.bridge.send(Command::LoadEvents {
+            events: scene.events,
+            loop_len: scene.loop_len,
+        });
+    }
+
+    fn normalize_overview_selection(&mut self) {
+        let Some(workspace) = self.project_workspace.as_ref() else {
+            self.overview_lane = 0;
+            self.overview_block = 0;
+            return;
+        };
+        if workspace.scene.lanes.is_empty() {
+            self.overview_lane = 0;
+            self.overview_block = 0;
+            return;
+        }
+        self.overview_lane = self
+            .overview_lane
+            .min(workspace.scene.lanes.len().saturating_sub(1));
+        let block_count = workspace
+            .scene
+            .lanes
+            .get(self.overview_lane)
+            .map(|lane| lane.blocks.len())
+            .unwrap_or(0);
+        self.overview_block = if block_count == 0 {
+            0
+        } else {
+            self.overview_block.min(block_count.saturating_sub(1))
+        };
+    }
+
+    fn move_overview_vertical(&mut self, delta: i32) {
+        let Some(workspace) = self.project_workspace.as_ref() else {
+            return;
+        };
+        let lane_count = workspace.scene.lanes.len() as i32;
+        if lane_count == 0 {
+            return;
+        }
+        self.overview_lane = (self.overview_lane as i32 + delta).clamp(0, lane_count - 1) as usize;
+        self.normalize_overview_selection();
+    }
+
+    fn move_overview_horizontal(&mut self, delta: i32) {
+        let Some(workspace) = self.project_workspace.as_ref() else {
+            return;
+        };
+        let Some(lane) = workspace.scene.lanes.get(self.overview_lane) else {
+            return;
+        };
+        let block_count = lane.blocks.len() as i32;
+        if block_count == 0 {
+            self.overview_block = 0;
+            return;
+        }
+        self.overview_block =
+            (self.overview_block as i32 + delta).clamp(0, block_count - 1) as usize;
+    }
+
+    fn open_project_clip_roll(&mut self) {
+        let Some(workspace) = self.project_workspace.as_ref() else {
+            return;
+        };
+        let Some(block) = workspace.block(self.overview_lane, self.overview_block) else {
+            return;
+        };
+        let Some(clip) = workspace
+            .clip_for_selection(self.overview_lane, self.overview_block)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(preview_ctx) =
+            project::clip_preview_context(workspace, self.overview_lane, self.overview_block)
+        else {
+            return;
+        };
+        let lane_voice = self
+            .voice_ids
+            .get(self.overview_lane)
+            .copied()
+            .unwrap_or(self.overview_lane as u32);
+        let roll_clip = project::clip_document_to_roll_clip(&clip, lane_voice);
+        let loop_beats_floor = project::parse_beat_expr(&block.length)
+            .or_else(|| roll_clip.length_beats.map(|beats| beats.rational()))
+            .unwrap_or_else(|| Rational64::from_integer(self.grid.rows as i64));
+        let mut roll = crate::pattern_roll::PatternRoll::new(
+            roll_clip,
+            self.overview_lane as u32,
+            loop_beats_floor,
+            lane_voice,
+            crate::pattern_roll::PatternRollPreview::ProjectClip {
+                background_events: preview_ctx.background_events,
+                block_start: preview_ctx.block_start,
+                loop_beats: preview_ctx.loop_beats,
+            },
+            self.scale.clone(),
+            self.voice_ids.clone(),
+            440.0,
+            self.swing,
+        );
+        roll.push_preview(&mut self.bridge, self.bpm, 44100.0);
+        self.project_roll_clip_id = Some(clip.clip.id.clone());
+        self.pattern_roll = Some(roll);
+    }
+
+    fn load_project_graph_selection(&mut self) {
+        let Some(workspace) = self.project_workspace.as_ref() else {
+            return;
+        };
+        let Some(graph) =
+            workspace.graph_view_for_selection(self.overview_lane, self.overview_block)
+        else {
+            self.graph_nodes.clear();
+            self.graph_edges.clear();
+            self.graph_depths.clear();
+            self.graph_layers.clear();
+            self.graph_params.clear();
+            self.graph_param_values.clear();
+            self.graph_param_groups.clear();
+            self.graph_has_children.clear();
+            self.graph_node_descriptions.clear();
+            self.graph_breadcrumb.clear();
+            self.graph_cursor = 0;
+            self.param_cursor = 0;
+            return;
+        };
+        let (depths, layers) = crate::view::graph::compute_graph_nav(&graph.nodes, &graph.edges);
+        self.graph_nodes = graph.nodes;
+        self.graph_edges = graph.edges;
+        self.graph_depths = depths;
+        self.graph_layers = layers;
+        self.graph_params = vec![Vec::new(); self.graph_nodes.len()];
+        self.graph_param_values = vec![Vec::new(); self.graph_nodes.len()];
+        self.graph_param_groups = vec![Vec::new(); self.graph_nodes.len()];
+        self.graph_has_children = vec![false; self.graph_nodes.len()];
+        self.graph_node_descriptions = vec![String::new(); self.graph_nodes.len()];
+        self.graph_breadcrumb = vec![graph.name];
+        self.graph_cursor = 0;
+        self.param_cursor = 0;
+    }
+
+    fn graph_can_enter_nested(&self) -> bool {
+        matches!(self.editor, Editor::Graph)
+            && self
+                .graph_has_children
+                .get(self.graph_cursor)
+                .copied()
+                .unwrap_or(false)
+    }
+
+    fn focus_stack(&self) -> FocusStack {
+        let mut stack = FocusStack::new();
+        stack.push(FocusFrame::project(
+            self.project_name().unwrap_or("Project").to_string(),
+        ));
+        if self.project_mode() {
+            if let Some(workspace) = self.project_workspace.as_ref() {
+                stack.push(FocusFrame::surface(
+                    "scene",
+                    format!("Scene {}", workspace.scene.scene.name),
+                ));
+                if let Some(lane) = workspace.lane(self.overview_lane) {
+                    stack.push(FocusFrame::surface("lane", format!("Lane {}", lane.label)));
+                    if let Some(block) = workspace.block(self.overview_lane, self.overview_block) {
+                        stack.push(FocusFrame::surface(
+                            "block",
+                            format!("Block {}", block.name),
+                        ));
+                    }
+                }
+            }
+            stack.push(FocusFrame::surface(
+                "editor",
+                match self.editor {
+                    Editor::Pattern => "Overview",
+                    Editor::Graph => "Graph",
+                },
+            ));
+        } else {
+            stack.push(FocusFrame::editor(self.editor));
+        }
+
+        if self.editor == Editor::Graph && !self.project_mode() {
+            for label in &self.graph_breadcrumb {
+                stack.push(FocusFrame::surface("inner-graph", label.clone()));
+            }
+        } else if self.editor == Editor::Graph && self.project_mode() {
+            if let Some(current) = self.graph_breadcrumb.last() {
+                stack.push(FocusFrame::surface("graph-doc", current.clone()));
+            }
+        }
+
+        if self.mode == Mode::Edit {
+            let label = match self.editor {
+                Editor::Pattern if self.project_mode() => "Overview",
+                Editor::Pattern => "Step Edit",
+                Editor::Graph => "Param Edit",
+            };
+            stack.push(FocusFrame::surface("mode", label));
+        }
+
+        if let Some(roll) = &self.pattern_roll {
+            let label = if self.project_mode() {
+                self.project_roll_clip_id
+                    .as_deref()
+                    .map(|id| format!("ROL {}", id))
+                    .unwrap_or_else(|| format!("ROL {}", roll.grid_column))
+            } else {
+                format!("ROL {}", roll.grid_column)
+            };
+            stack.push(FocusFrame::surface("roll", label));
+        }
+
+        let esc_behavior = if self.pattern_roll.is_some() {
+            EscBehavior::ApplyAndBack
+        } else if self.mode == Mode::Edit
+            || (self.editor == Editor::Graph && !self.graph_path.is_empty())
+        {
+            EscBehavior::Back
+        } else {
+            EscBehavior::None
+        };
+        stack.with_esc_behavior(esc_behavior)
+    }
+
+    fn shell_selection_summary(&self) -> String {
+        if let Some(roll) = &self.pattern_roll {
+            let project_context = if self.project_mode() {
+                self.project_workspace
+                    .as_ref()
+                    .and_then(|workspace| {
+                        let lane = workspace.lane(self.overview_lane)?;
+                        let block = workspace.block(self.overview_lane, self.overview_block)?;
+                        let clip = self.project_roll_clip_id.as_deref().unwrap_or("clip");
+                        Some(format!(
+                            "lane {} · block {} · clip {}",
+                            lane.label, block.name, clip
+                        ))
+                    })
+                    .unwrap_or_else(|| format!("track {}", roll.grid_column))
+            } else {
+                format!("track {}", roll.grid_column)
+            };
+            return match (roll.primary_index(), roll.primary_note()) {
+                (Some(primary_idx), Some(note)) => {
+                    let dur = note.t_off.rational() - note.t_on.rational();
+                    format!(
+                        "{} · {} sel · primary #{} class {} Δ {}/{} vel {:.2}",
+                        project_context,
+                        roll.selection_len(),
+                        primary_idx,
+                        note.class,
+                        dur.numer(),
+                        dur.denom(),
+                        note.velocity
+                    )
+                }
+                _ => format!("{project_context} · empty clip"),
+            };
+        }
+
+        if self.project_mode() {
+            return match self.editor {
+                Editor::Pattern => {
+                    let Some(workspace) = self.project_workspace.as_ref() else {
+                        return "no project loaded".into();
+                    };
+                    let Some(lane) = workspace.lane(self.overview_lane) else {
+                        return "no lane selected".into();
+                    };
+                    match workspace.block(self.overview_lane, self.overview_block) {
+                        Some(block) => {
+                            let kind = match &block.content {
+                                trem_project::BlockContent::Clip { .. } => "clip",
+                                trem_project::BlockContent::Graph { .. } => "graph",
+                                trem_project::BlockContent::Sample { .. } => "sample",
+                                trem_project::BlockContent::Midi { .. } => "midi",
+                                trem_project::BlockContent::Marker { .. } => "marker",
+                            };
+                            format!("lane {} · {} · {}", lane.label, block.name, kind)
+                        }
+                        None => format!("lane {} · empty", lane.label),
+                    }
+                }
+                Editor::Graph => self
+                    .graph_nodes
+                    .get(self.graph_cursor)
+                    .map(|(_, name)| format!("node {name}"))
+                    .unwrap_or_else(|| "graph empty".into()),
+            };
+        }
+
+        match self.editor {
+            Editor::Pattern => match self.grid.get(self.cursor_row, self.cursor_col) {
+                Some(note) => format!(
+                    "step {} voice {} note {}{} vel {:.2}",
+                    self.cursor_row,
+                    self.cursor_col,
+                    note.degree,
+                    if note.octave == 0 {
+                        String::new()
+                    } else {
+                        format!(" oct {}", note.octave)
+                    },
+                    note.velocity.to_f64()
+                ),
+                None => format!("step {} voice {} empty", self.cursor_row, self.cursor_col),
+            },
+            Editor::Graph => {
+                let node = self
+                    .graph_nodes
+                    .get(self.graph_cursor)
+                    .map(|(_, name)| name.as_str())
+                    .unwrap_or("root");
+                if self.mode == Mode::Edit {
+                    if let (Some(params), Some(values)) = (
+                        self.graph_params.get(self.graph_cursor),
+                        self.graph_param_values.get(self.graph_cursor),
+                    ) {
+                        if let (Some(param), Some(value)) =
+                            (params.get(self.param_cursor), values.get(self.param_cursor))
+                        {
+                            return format!(
+                                "node {} · {} {}",
+                                node,
+                                param.name,
+                                crate::view::graph::format_param_value(*value, param)
+                            );
+                        }
+                    }
+                }
+                format!("node {node}")
+            }
+        }
+    }
+
+    fn shell_actions_summary(&self) -> String {
+        if let Some(roll) = &self.pattern_roll {
+            return format!(
+                "ROL {} · Tab mode · hjkl by mode · Shift extend/coarse · Ctrl+←/→ snap · Shift+Enter full · i info · ? help",
+                roll.mode_label()
+            );
+        }
+
+        if self.project_mode() {
+            return match self.editor {
+                Editor::Pattern => {
+                    "Space play · Enter open · Shift+Enter full · Tab graph · hjkl move · Ctrl+S save · Ctrl+O reload · i info · ? help".into()
+                }
+                Editor::Graph => {
+                    "Space play · Shift+Enter full · hjkl move · Tab overview · Ctrl+S save · Ctrl+O reload · i info · ? help".into()
+                }
+            };
+        }
+
+        match (self.editor, self.mode) {
+            (Editor::Pattern, Mode::Normal) => {
+                "Enter roll · Shift+Enter full · e edit · Tab switch · ` panel · i info · ? help"
+                    .into()
+            }
+            (Editor::Pattern, Mode::Edit) => {
+                "z-m notes · a gate · Shift+Enter full · Del clear · ` panel · i info · ? help"
+                    .into()
+            }
+            (Editor::Graph, Mode::Normal) => {
+                let mut parts = vec!["h/j/k/l move".to_string(), "e params".to_string()];
+                if self.graph_can_enter_nested() {
+                    parts.push("Enter focus".to_string());
+                }
+                parts.push("Shift+Enter full".to_string());
+                parts.push("` panel".to_string());
+                parts.push("i info".to_string());
+                parts.push("? help".to_string());
+                parts.join(" · ")
+            }
+            (Editor::Graph, Mode::Edit) => {
+                "←/→ adjust · Shift+←/→ fine · Shift+Enter full · ` panel · i info · ? help".into()
+            }
+        }
+    }
+
+    fn current_zone_mode_tool(&self) -> (String, String, String) {
+        if let Some(roll) = &self.pattern_roll {
+            return (
+                "ROL".into(),
+                roll.mode_label().into(),
+                roll.tool_label().into(),
+            );
+        }
+
+        if self.project_mode() {
+            return match self.editor {
+                Editor::Pattern => ("PRJ".into(), "VIEW".into(), "block-focus".into()),
+                Editor::Graph => (
+                    "GRF".into(),
+                    if self.mode == Mode::Edit {
+                        "PARAM".into()
+                    } else {
+                        "VIEW".into()
+                    },
+                    if self.mode == Mode::Edit {
+                        "param".into()
+                    } else {
+                        "node-focus".into()
+                    },
+                ),
+            };
+        }
+
+        match self.editor {
+            Editor::Pattern => (
+                "SEQ".into(),
+                self.mode.label().into(),
+                if self.mode == Mode::Edit {
+                    "note-paint".into()
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    "step-focus".into()
                 },
             ),
-            format!("  beat {:.2}", self.beat_position).into(),
-        ])
+            Editor::Graph => (
+                "GRF".into(),
+                self.mode.label().into(),
+                if self.mode == Mode::Edit {
+                    "param".into()
+                } else {
+                    "node-focus".into()
+                },
+            ),
+        }
+    }
+
+    fn build_shell_context(&self, focus_stack: &FocusStack) -> ShellContext {
+        let (zone, mode, tool) = self.current_zone_mode_tool();
+        ShellContext {
+            frames: focus_stack.frames().to_vec(),
+            focus_path: focus_stack.breadcrumb(),
+            esc_hint: focus_stack.esc_hint(),
+            selection_summary: self.shell_selection_summary(),
+            actions_summary: self.shell_actions_summary(),
+            info_lines: self.sidebar_info_lines(),
+            zone,
+            mode,
+            tool,
+            project_mode: self.project_mode(),
+            project_name: self.project_name().map(str::to_string),
+        }
+    }
+
+    fn pattern_roll_loop_beats(&self) -> Option<f64> {
+        let roll = self.pattern_roll.as_ref()?;
+        Some(
+            roll.clip
+                .length_beats
+                .map(|beats| *beats.rational().numer() as f64 / *beats.rational().denom() as f64)
+                .or_else(|| {
+                    self.project_workspace.as_ref().and_then(|workspace| {
+                        project::parse_beat_expr(&workspace.scene.scene.timeline_beats)
+                            .map(|beats| *beats.numer() as f64 / *beats.denom() as f64)
+                    })
+                })
+                .unwrap_or(self.grid.rows as f64),
+        )
+    }
+
+    fn bottom_panel_height(&self) -> u16 {
+        if self.fullscreen || self.project_mode() {
+            return 0;
+        }
+        match (self.editor, self.bottom_pane) {
+            (_, BottomPane::Hidden) => 0,
+            (Editor::Graph, _) => 6,
+            (Editor::Pattern, _) => 5,
+        }
+    }
+
+    fn sidebar_info_lines(&self) -> Vec<String> {
+        if let Some(roll) = &self.pattern_roll {
+            let mut lines = vec![
+                format!("rol {} · {}", roll.mode_label(), roll.mode_intent()),
+                format!("attr {}", roll.attr_label()),
+                format!("selection {} note(s)", roll.selection_len()),
+            ];
+            if let Some(note) = roll.primary_note() {
+                let dur = note.t_off.rational() - note.t_on.rational();
+                lines.push(format!(
+                    "primary {} @ {} + {}/{}",
+                    note.class,
+                    note.t_on,
+                    dur.numer(),
+                    dur.denom()
+                ));
+                lines.push(format!("voice {} · vel {:.2}", note.voice, note.velocity));
+            }
+            return lines;
+        }
+
+        if self.project_mode() {
+            let mut lines = vec!["pane info".to_string()];
+            if let Some(workspace) = self.project_workspace.as_ref() {
+                lines.push(format!("project {}", workspace.project_name()));
+                lines.push(format!("scene {}", workspace.scene.scene.name));
+            }
+            return lines;
+        }
+
+        vec![
+            format!("editor {}", self.editor.title()),
+            format!("mode {}", self.mode.label()),
+            format!("scale {}", self.scale_name),
+        ]
     }
 
     fn close_pattern_roll_apply(&mut self) {
@@ -228,6 +835,17 @@ impl App {
         if let Err(e) = roll.validate_for_apply() {
             eprintln!("trem: pattern roll invalid ({e}); fix note times before closing.");
             self.pattern_roll = Some(roll);
+            return;
+        }
+        if let (Some(workspace), Some(clip_id)) = (
+            self.project_workspace.as_mut(),
+            self.project_roll_clip_id.take(),
+        ) {
+            if let Some(template) = workspace.clips.get(&clip_id).cloned() {
+                let updated = project::roll_clip_to_document(&template, &roll.clip);
+                workspace.replace_clip(updated);
+            }
+            self.sync_project_scene();
             return;
         }
         let col = roll.grid_column;
@@ -328,6 +946,9 @@ impl App {
 
     /// Tells the audio thread which signal to show in the bottom **IN | OUT** previews.
     pub fn sync_scope_focus(&mut self) {
+        if self.project_mode() {
+            return;
+        }
         match self.editor {
             Editor::Pattern => {
                 self.bridge
@@ -363,17 +984,27 @@ impl App {
         );
         match action {
             Action::Quit => self.should_quit = true,
-            Action::ToggleHelp => {
-                self.help_open = !self.help_open;
-                if self.help_open {
-                    self.mode = Mode::Normal;
+            Action::ToggleFullscreen => {
+                self.fullscreen = !self.fullscreen;
+                if !self.fullscreen {
+                    self.help_open = false;
                 }
             }
+            Action::ToggleHelp => {
+                self.help_open = !self.help_open;
+            }
+            Action::ShowInfoPane => self.help_open = false,
             Action::CycleEditor => {
                 self.editor = self.editor.next();
                 self.mode = Mode::Normal;
+                if self.project_mode() && self.editor == Editor::Graph {
+                    self.load_project_graph_selection();
+                }
             }
             Action::ToggleEdit => {
+                if self.project_mode() {
+                    return;
+                }
                 self.mode = match self.mode {
                     Mode::Normal => {
                         self.param_cursor = 0;
@@ -383,6 +1014,27 @@ impl App {
                 };
             }
             Action::OpenPatternRoll => {
+                if self.project_mode() {
+                    if self.editor != Editor::Pattern || self.pattern_roll.is_some() {
+                        return;
+                    }
+                    let is_graph_block = self
+                        .project_workspace
+                        .as_ref()
+                        .and_then(|workspace| {
+                            workspace.block(self.overview_lane, self.overview_block)
+                        })
+                        .is_some_and(|block| {
+                            matches!(block.content, trem_project::BlockContent::Graph { .. })
+                        });
+                    if is_graph_block {
+                        self.editor = Editor::Graph;
+                        self.load_project_graph_selection();
+                    } else {
+                        self.open_project_clip_roll();
+                    }
+                    return;
+                }
                 if self.editor != Editor::Pattern
                     || self.mode != Mode::Normal
                     || self.pattern_roll.is_some()
@@ -401,9 +1053,9 @@ impl App {
                 let mut roll = crate::pattern_roll::PatternRoll::new(
                     clip,
                     col,
-                    self.grid.rows,
+                    Rational64::from_integer(self.grid.rows as i64),
                     lane_voice,
-                    self.grid.clone(),
+                    crate::pattern_roll::PatternRollPreview::Grid(self.grid.clone()),
                     self.scale.clone(),
                     self.voice_ids.clone(),
                     440.0,
@@ -413,6 +1065,16 @@ impl App {
                 self.pattern_roll = Some(roll);
             }
             Action::TogglePlay => {
+                if self.project_mode() {
+                    self.playing = !self.playing;
+                    if self.playing {
+                        self.engine_pattern_active = true;
+                        self.bridge.send(Command::Play);
+                    } else {
+                        self.bridge.send(Command::Pause);
+                    }
+                    return;
+                }
                 self.playing = !self.playing;
                 if self.playing {
                     self.engine_pattern_active = true;
@@ -424,7 +1086,11 @@ impl App {
             }
             Action::MoveUp => match (&self.editor, &self.mode) {
                 (Editor::Pattern, _) => {
-                    self.cursor_col = self.cursor_col.saturating_sub(1);
+                    if self.project_mode() {
+                        self.move_overview_vertical(-1);
+                    } else {
+                        self.cursor_col = self.cursor_col.saturating_sub(1);
+                    }
                 }
                 (Editor::Graph, Mode::Normal) => self.graph_move_up(),
                 (Editor::Graph, Mode::Edit) => {
@@ -433,7 +1099,9 @@ impl App {
             },
             Action::MoveDown => match (&self.editor, &self.mode) {
                 (Editor::Pattern, _) => {
-                    if self.cursor_col < self.grid.columns.saturating_sub(1) {
+                    if self.project_mode() {
+                        self.move_overview_vertical(1);
+                    } else if self.cursor_col < self.grid.columns.saturating_sub(1) {
                         self.cursor_col += 1;
                     }
                 }
@@ -447,14 +1115,20 @@ impl App {
             },
             Action::MoveLeft => match (&self.editor, &self.mode) {
                 (Editor::Pattern, _) => {
-                    self.cursor_row = self.cursor_row.saturating_sub(1);
+                    if self.project_mode() {
+                        self.move_overview_horizontal(-1);
+                    } else {
+                        self.cursor_row = self.cursor_row.saturating_sub(1);
+                    }
                 }
                 (Editor::Graph, Mode::Normal) => self.graph_move_left(),
                 (Editor::Graph, Mode::Edit) => self.adjust_param_coarse(-1),
             },
             Action::MoveRight => match (&self.editor, &self.mode) {
                 (Editor::Pattern, _) => {
-                    if self.cursor_row < self.grid.rows.saturating_sub(1) {
+                    if self.project_mode() {
+                        self.move_overview_horizontal(1);
+                    } else if self.cursor_row < self.grid.rows.saturating_sub(1) {
                         self.cursor_row += 1;
                     }
                 }
@@ -464,38 +1138,48 @@ impl App {
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
             Action::SaveProject => {
-                let path = crate::project::default_project_path();
-                let data = ProjectData::from_app(self);
-                if let Err(e) = crate::project::save(&path, &data) {
-                    eprintln!("save error: {e}");
+                if let Some(workspace) = self.project_workspace.as_ref() {
+                    if let Err(e) = workspace.save() {
+                        eprintln!("save error: {e}");
+                    }
+                } else {
+                    let path = crate::project::default_project_path();
+                    eprintln!("save not available for legacy shell ({})", path.display());
                 }
             }
             Action::LoadProject => {
-                let path = crate::project::default_project_path();
-                match crate::project::load(&path) {
-                    Ok(data) => {
-                        self.push_undo();
-                        data.apply_to_app(self);
-                        if self.should_sync_pattern() {
-                            self.send_pattern();
-                        }
+                if let Some(workspace) = self.project_workspace.as_ref() {
+                    match workspace.reload() {
+                        Ok(workspace) => self.load_workspace(workspace),
+                        Err(e) => eprintln!("load error: {e}"),
                     }
-                    Err(e) => eprintln!("load error: {e}"),
+                } else {
+                    let path = crate::project::default_project_path();
+                    eprintln!("load not available for legacy shell ({})", path.display());
                 }
             }
             Action::SwingUp => {
+                if self.project_mode() {
+                    return;
+                }
                 self.swing = (self.swing + 0.05).min(0.9);
                 if self.should_sync_pattern() {
                     self.send_pattern();
                 }
             }
             Action::SwingDown => {
+                if self.project_mode() {
+                    return;
+                }
                 self.swing = (self.swing - 0.05).max(0.0);
                 if self.should_sync_pattern() {
                     self.send_pattern();
                 }
             }
             Action::GateCycle => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     if let Some(note) = self.grid.get(self.cursor_row, self.cursor_col).cloned() {
                         self.push_undo();
@@ -511,6 +1195,9 @@ impl App {
                 }
             }
             Action::NoteInput(degree) => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor != Editor::Pattern {
                     return;
                 }
@@ -552,6 +1239,9 @@ impl App {
                 }
             }
             Action::DeleteNote => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor != Editor::Pattern {
                     return;
                 }
@@ -562,18 +1252,32 @@ impl App {
                 }
             }
             Action::OctaveUp => {
+                if self.project_mode() {
+                    return;
+                }
                 self.octave = (self.octave + 1).min(9);
                 if self.should_sync_pattern() {
                     self.send_pattern();
                 }
             }
             Action::OctaveDown => {
+                if self.project_mode() {
+                    return;
+                }
                 self.octave = (self.octave - 1).max(-4);
                 if self.should_sync_pattern() {
                     self.send_pattern();
                 }
             }
             Action::BpmUp => {
+                if self.project_mode() {
+                    if let Some(workspace) = self.project_workspace.as_mut() {
+                        let tempo = (self.bpm + 1.0).min(300.0).round() as u16;
+                        workspace.set_tempo_bpm(tempo);
+                    }
+                    self.sync_project_scene();
+                    return;
+                }
                 if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(1);
                 } else {
@@ -582,6 +1286,14 @@ impl App {
                 }
             }
             Action::BpmDown => {
+                if self.project_mode() {
+                    if let Some(workspace) = self.project_workspace.as_mut() {
+                        let tempo = (self.bpm - 1.0).max(20.0).round() as u16;
+                        workspace.set_tempo_bpm(tempo);
+                    }
+                    self.sync_project_scene();
+                    return;
+                }
                 if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(-1);
                 } else {
@@ -590,16 +1302,25 @@ impl App {
                 }
             }
             Action::ParamFineUp => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(1);
                 }
             }
             Action::ParamFineDown => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Graph && self.mode == Mode::Edit {
                     self.adjust_param_fine(-1);
                 }
             }
             Action::EuclideanFill => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.euclidean_k = (self.euclidean_k + 1) % (self.grid.rows + 1);
@@ -613,6 +1334,9 @@ impl App {
                 }
             }
             Action::RandomizeVoice => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.randomize_current_voice();
@@ -622,6 +1346,9 @@ impl App {
                 }
             }
             Action::ReverseVoice => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.reverse_voice(self.cursor_col);
@@ -631,6 +1358,9 @@ impl App {
                 }
             }
             Action::ShiftVoiceLeft => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.shift_voice(self.cursor_col, -1);
@@ -640,6 +1370,9 @@ impl App {
                 }
             }
             Action::ShiftVoiceRight => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.grid.shift_voice(self.cursor_col, 1);
@@ -649,6 +1382,9 @@ impl App {
                 }
             }
             Action::VelocityUp => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.adjust_note_velocity(Rational::new(1, 8));
@@ -658,6 +1394,9 @@ impl App {
                 }
             }
             Action::VelocityDown => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor == Editor::Pattern {
                     self.push_undo();
                     self.adjust_note_velocity(Rational::new(-1, 8));
@@ -667,9 +1406,15 @@ impl App {
                 }
             }
             Action::CycleBottomPane => {
+                if self.project_mode() {
+                    return;
+                }
                 self.bottom_pane = self.bottom_pane.next();
             }
             Action::EnterGraph => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor != Editor::Graph || self.mode != Mode::Normal {
                     return;
                 }
@@ -682,6 +1427,9 @@ impl App {
                 self.enter_nested_graph();
             }
             Action::ExitGraph => {
+                if self.project_mode() {
+                    return;
+                }
                 if self.editor != Editor::Graph {
                     return;
                 }
@@ -697,27 +1445,6 @@ impl App {
         self.graph_params
             .get(self.graph_cursor)
             .map_or(0, |p| p.len())
-    }
-
-    fn current_node_description(&self) -> &str {
-        if self.editor != Editor::Graph {
-            return "";
-        }
-        self.graph_node_descriptions
-            .get(self.graph_cursor)
-            .map(|s| s.as_str())
-            .unwrap_or("")
-    }
-
-    fn current_param_help(&self) -> &str {
-        if self.editor != Editor::Graph || self.mode != crate::input::Mode::Edit {
-            return "";
-        }
-        self.graph_params
-            .get(self.graph_cursor)
-            .and_then(|params| params.get(self.param_cursor))
-            .map(|p| p.help)
-            .unwrap_or("")
     }
 
     fn adjust_param_coarse(&mut self, direction: i32) {
@@ -991,7 +1718,10 @@ impl App {
             &self.voice_ids,
             self.swing,
         );
-        self.bridge.send(Command::LoadEvents(events));
+        let loop_len = ((self.grid.rows as f64 * 60.0 / self.bpm.max(1e-6)) * 44_100.0)
+            .round()
+            .max(0.0) as usize;
+        self.bridge.send(Command::LoadEvents { events, loop_len });
     }
 
     fn push_undo(&mut self) {
@@ -1022,123 +1752,51 @@ impl App {
         }
     }
 
-    /// Lays out transport, sidebar, main view (pattern or graph), and scope into `frame`.
-    pub fn draw(&mut self, frame: &mut ratatui::Frame) {
-        self.refresh_host_stats();
-
-        let pattern_roll_transport = self.pattern_roll_transport_line();
+    fn render_main_canvas(
+        &mut self,
+        frame: &mut ratatui::Frame<'_>,
+        area: Rect,
+        roll_loop_beats: Option<f64>,
+    ) {
         if let Some(roll) = &mut self.pattern_roll {
-            let loop_beats = self.grid.rows as f64;
             roll.draw(
                 frame,
-                frame.area(),
-                pattern_roll_transport,
+                area,
+                self.playing,
                 self.beat_position,
-                loop_beats,
+                roll_loop_beats.unwrap_or(self.grid.rows as f64),
             );
-            if self.help_open {
-                frame.render_widget(HelpOverlay, frame.area());
-            }
             return;
         }
 
-        let bottom_h = match self.editor {
-            Editor::Graph => 6u16,
-            Editor::Pattern => 5u16,
-        };
-        let outer = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Min(4),
-                Constraint::Length(bottom_h),
-            ])
-            .split(frame.area());
-
-        frame.render_widget(
-            TransportView {
-                bpm: self.bpm,
-                beat_position: self.beat_position,
-                playing: self.playing,
-                mode: &self.mode,
-                editor: &self.editor,
-                scale_name: &self.scale_name,
-                octave: self.octave,
-                swing: self.swing,
-                bottom_pane: self.bottom_pane,
-            },
-            outer[0],
-        );
-
-        let sidebar_w = info_sidebar_width(outer[1].width);
-        let middle = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(sidebar_w),
-                Constraint::Min(MAIN_EDITOR_MIN_WIDTH),
-            ])
-            .split(outer[1]);
-
-        let note_at_cursor = self.grid.get(self.cursor_row, self.cursor_col);
-        let graph_node_name = match self.editor {
-            Editor::Graph => self
-                .graph_nodes
-                .get(self.graph_cursor)
-                .map(|(_, n)| n.as_str()),
-            Editor::Pattern => None,
-        };
-        let graph_can_enter_nested = matches!(self.editor, Editor::Graph)
-            && self
-                .graph_has_children
-                .get(self.graph_cursor)
-                .copied()
-                .unwrap_or(false);
-        let graph_is_nested = !self.graph_path.is_empty();
-
-        frame.render_widget(
-            InfoView {
-                mode: &self.mode,
-                editor: &self.editor,
-                octave: self.octave,
-                cursor_step: self.cursor_row,
-                cursor_voice: self.cursor_col,
-                grid_steps: self.grid.rows,
-                grid_voices: self.grid.columns,
-                note_at_cursor,
-                scale: &self.scale,
-                scale_name: &self.scale_name,
-                instrument_names: &self.instrument_names,
-                swing: self.swing,
-                euclidean_k: self.euclidean_k,
-                undo_depth: self.undo_stack.len(),
-                node_description: self.current_node_description(),
-                param_help: self.current_param_help(),
-                graph_node_name,
-                graph_can_enter_nested,
-                graph_is_nested,
-                host_stats: &self.host_stats,
-                peak_l: self.peak_l,
-                peak_r: self.peak_r,
-                playing: self.playing,
-                bpm: self.bpm,
-            },
-            middle[0],
-        );
-
         match self.editor {
             Editor::Pattern => {
-                frame.render_widget(
-                    PatternView {
-                        grid: &self.grid,
-                        cursor_row: self.cursor_row,
-                        cursor_col: self.cursor_col,
-                        current_play_row: self.current_play_row,
-                        mode: &self.mode,
-                        scale: &self.scale,
-                        instrument_names: &self.instrument_names,
-                    },
-                    middle[1],
-                );
+                if let Some(workspace) = self.project_workspace.as_ref() {
+                    frame.render_widget(
+                        OverviewView {
+                            scene: &workspace.scene,
+                            clips: &workspace.clips,
+                            selected_lane: self.overview_lane,
+                            selected_block: self.overview_block,
+                            beat_position: self.beat_position,
+                            playing: self.playing,
+                        },
+                        area,
+                    );
+                } else {
+                    frame.render_widget(
+                        PatternView {
+                            grid: &self.grid,
+                            cursor_row: self.cursor_row,
+                            cursor_col: self.cursor_col,
+                            current_play_row: self.current_play_row,
+                            mode: &self.mode,
+                            scale: &self.scale,
+                            instrument_names: &self.instrument_names,
+                        },
+                        area,
+                    );
+                }
             }
             Editor::Graph => {
                 let params = self.graph_params.get(self.graph_cursor);
@@ -1160,9 +1818,47 @@ impl App {
                         breadcrumb: &self.graph_breadcrumb,
                         has_children: &self.graph_has_children,
                     },
-                    middle[1],
+                    area,
                 );
             }
+        }
+    }
+
+    fn render_sidebar(&self, frame: &mut ratatui::Frame<'_>, area: Rect, shell: &ShellContext) {
+        if self.help_open {
+            frame.render_widget(
+                HelpOverlay {
+                    project_mode: shell.project_mode,
+                    zone: &shell.zone,
+                    mode: &shell.mode,
+                    tool: &shell.tool,
+                },
+                area,
+            );
+        } else {
+            frame.render_widget(
+                ContextPanel {
+                    title: "INFO",
+                    zone: &shell.zone,
+                    mode: &shell.mode,
+                    tool: &shell.tool,
+                    frames: &shell.frames,
+                    details: &shell.info_lines,
+                    selection: &shell.selection_summary,
+                    actions: &shell.actions_summary,
+                    esc_hint: shell.esc_hint.as_deref(),
+                    playing: self.playing,
+                    bpm: self.bpm,
+                    beat_position: self.beat_position,
+                },
+                area,
+            );
+        }
+    }
+
+    fn render_bottom_panel(&mut self, frame: &mut ratatui::Frame<'_>, area: Rect) {
+        if area.height == 0 || area.width == 0 {
+            return;
         }
 
         let now = Instant::now();
@@ -1172,11 +1868,12 @@ impl App {
         let (spec_out, nr_out) = self.spectrum_analyzer_out.analyze(&self.scope_master, now);
 
         match (self.editor, self.bottom_pane) {
+            (_, BottomPane::Hidden) => {}
             (Editor::Graph, BottomPane::Waveform) => {
                 let chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(outer[2]);
+                    .split(area);
                 frame.render_widget(
                     ScopeView {
                         samples: &self.scope_graph_in,
@@ -1194,7 +1891,7 @@ impl App {
                 let chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(outer[2]);
+                    .split(area);
                 let fall = self.spectrum_fall_ms;
                 frame.render_widget(
                     SpectrumView {
@@ -1220,7 +1917,7 @@ impl App {
                     ScopeView {
                         samples: &self.scope_master,
                     },
-                    outer[2],
+                    area,
                 );
             }
             (Editor::Pattern, BottomPane::Spectrum) => {
@@ -1231,14 +1928,103 @@ impl App {
                         title: "OUT",
                         decay_ms_label: self.spectrum_fall_ms,
                     },
-                    outer[2],
+                    area,
                 );
             }
         }
+    }
+
+    fn render_fullscreen_overlays(
+        &self,
+        frame: &mut ratatui::Frame<'_>,
+        area: Rect,
+        shell: &ShellContext,
+    ) {
+        if area.height == 0 || area.width == 0 {
+            return;
+        }
+
+        let hud_area = Rect::new(area.x, area.y, area.width, 1);
+        frame.render_widget(
+            FullscreenHud {
+                zone: &shell.zone,
+                mode: &shell.mode,
+                tool: &shell.tool,
+                focus_path: &shell.focus_path,
+                esc_hint: shell.esc_hint.as_deref(),
+            },
+            hud_area,
+        );
 
         if self.help_open {
-            frame.render_widget(HelpOverlay, frame.area());
+            let overlay = fullscreen_overlay_rect(area);
+            frame.render_widget(Clear, overlay);
+            self.render_sidebar(frame, overlay, shell);
         }
+    }
+
+    /// Lays out the focus shell: transport, main view, optional feedback panel, and status strip.
+    pub fn draw(&mut self, frame: &mut ratatui::Frame) {
+        self.refresh_host_stats();
+
+        let focus_stack = self.focus_stack();
+        let shell = self.build_shell_context(&focus_stack);
+        let roll_loop_beats = self.pattern_roll_loop_beats();
+
+        if self.fullscreen {
+            self.render_main_canvas(frame, frame.area(), roll_loop_beats);
+            self.render_fullscreen_overlays(frame, frame.area(), &shell);
+            return;
+        }
+
+        let bottom_h = self.bottom_panel_height();
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Min(4),
+                Constraint::Length(bottom_h),
+                Constraint::Length(1),
+            ])
+            .split(frame.area());
+        let content = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(40), Constraint::Length(30)])
+            .split(outer[1]);
+
+        frame.render_widget(
+            TransportView {
+                bpm: self.bpm,
+                beat_position: self.beat_position,
+                playing: self.playing,
+                mode: &self.mode,
+                editor: &self.editor,
+                zone: &shell.zone,
+                mode_label: &shell.mode,
+                tool_label: &shell.tool,
+                focus_path: &shell.focus_path,
+                project_mode: shell.project_mode,
+                project_name: shell.project_name.as_deref(),
+                scale_name: &self.scale_name,
+                octave: self.octave,
+                swing: self.swing,
+                bottom_pane: self.bottom_pane,
+            },
+            outer[0],
+        );
+
+        self.render_main_canvas(frame, content[0], roll_loop_beats);
+        self.render_sidebar(frame, content[1], &shell);
+        self.render_bottom_panel(frame, outer[2]);
+
+        frame.render_widget(
+            StatusBar {
+                selection: &shell.selection_summary,
+                actions: &shell.actions_summary,
+                esc_hint: shell.esc_hint.as_deref(),
+            },
+            outer[3],
+        );
     }
 
     /// Terminal main loop until quit: render, handle keys, poll notifications.
@@ -1255,22 +2041,41 @@ impl App {
                 if let Event::Key(key) = event::read()? {
                     if key.kind != KeyEventKind::Release {
                         if self.pattern_roll.is_some() {
-                            let ctx = InputContext {
-                                editor: self.editor,
-                                mode: &self.mode,
-                                graph_is_nested: !self.graph_path.is_empty(),
-                                help_open: self.help_open,
-                            };
-                            if self.help_open {
-                                if let Some(action) = input::handle_key(key, &ctx) {
-                                    self.handle_action(action);
-                                }
+                            if matches!(key.code, KeyCode::Enter)
+                                && key.modifiers.contains(KeyModifiers::SHIFT)
+                            {
+                                self.handle_action(Action::ToggleFullscreen);
+                            } else if matches!(key.code, KeyCode::Char('?')) {
+                                self.handle_action(Action::ToggleHelp);
+                            } else if matches!(key.code, KeyCode::Char('i')) {
+                                self.handle_action(Action::ShowInfoPane);
+                            } else if self.help_open && matches!(key.code, KeyCode::Esc) {
+                                self.handle_action(Action::ToggleHelp);
                             } else if key.modifiers.contains(KeyModifiers::CONTROL) {
                                 match key.code {
                                     KeyCode::Char('c') | KeyCode::Char('q') => {
                                         self.should_quit = true;
                                     }
-                                    _ => {}
+                                    _ => {
+                                        let bpm = self.bpm;
+                                        let out = {
+                                            let bridge = &mut self.bridge;
+                                            let playing = &mut self.playing;
+                                            let engine = &mut self.engine_pattern_active;
+                                            self.pattern_roll.as_mut().map(|roll| {
+                                                roll.handle_key(
+                                                    key, bridge, bpm, 44100.0, playing, engine,
+                                                )
+                                            })
+                                        };
+                                        if out
+                                            == Some(
+                                                crate::pattern_roll::PatternRollOutcome::CloseApply,
+                                            )
+                                        {
+                                            self.close_pattern_roll_apply();
+                                        }
+                                    }
                                 }
                             } else {
                                 let bpm = self.bpm;
@@ -1309,22 +2114,5 @@ impl App {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod sidebar_width_tests {
-    use super::{info_sidebar_width, MAIN_EDITOR_MIN_WIDTH};
-
-    #[test]
-    fn narrow_middle_reserves_main_column() {
-        let sw = info_sidebar_width(52);
-        assert!(sw + MAIN_EDITOR_MIN_WIDTH <= 52, "sidebar={sw}");
-    }
-
-    #[test]
-    fn sidebar_caps_on_wide_terminals() {
-        let sw = info_sidebar_width(200);
-        assert!(sw <= 30, "sidebar={sw}");
     }
 }

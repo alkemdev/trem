@@ -1,0 +1,41 @@
+[package]
+name = "trem-mio"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Media I/O for trem — audio codecs today; images later. Not the Tokio mio crate."
+repository = "https://github.com/alkemdev/trem"
+readme = "../../README.md"
+documentation = "https://docs.rs/trem-mio"
+keywords = ["audio", "wav", "flac", "trem", "multimedia"]
+categories = ["multimedia::audio"]
+
+[package.metadata.docs.rs]
+features = ["audio"]
+
+[features]
+default = ["audio"]
+# Planar WAV/FLAC (`audio`, `wav`): `hound`, `flacenc`, `claxon`.
+audio = ["dep:claxon", "dep:flacenc", "dep:hound"]
+
+[dependencies]
+trem = { workspace = true }
+claxon = { version = "0.4.3", optional = true }
+flacenc = { version = "0.5.1", optional = true, default-features = false }
+hound = { version = "3.5.1", optional = true }
+
+[[example]]
+name = "save_planar_wav"
+required-features = ["audio"]
+
+[[example]]
+name = "read_planar"
+required-features = ["audio"]
+
+[[example]]
+name = "roundtrip_memory"
+required-features = ["audio"]
+
+[[example]]
+name = "write_flac"
+required-features = ["audio"]

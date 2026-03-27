@@ -1,111 +1,123 @@
-# Mode: Pattern roll (SEQ fullscreen)
+# Mode: ROL (SEQ fullscreen)
 
-**User story:** As someone shaping a pattern, I want to leave the step grid, open a piano roll for **the voice lane I have selected** (not every lane at once), see **that lane’s notes** in continuous time and pitch, scrub with the **same playhead** as the rest of the app, hear **the rest of the pattern still playing** in preview, and **apply** back to **only that column** when I’m done.
+**User story:** As someone shaping a lane clip, I want to open a focused roll editor for that clip, move around it with a clear navigation model, select one or many notes, edit pitch/time/attrs without fighting the camera, keep the shared playhead visible, and apply back to the parent scene with one explicit exit.
 
-**Parent context:** **SEQ → Navigate → Enter** opens this mode for **`cursor_col`** (the highlighted voice column). The roll edits a `trem::rung::Clip` slice of that column only; **Esc** merges into the step grid **without touching other columns**.
+**Parent context:** **Overview/SEQ → Enter** opens `ROL` for the selected clip or lane slice. `ROL` edits one clip at a time. **Esc** validates, applies, and returns to the parent surface.
 
 ---
 
 ## Entry / exit
 
-| Action | Behavior |
-|--------|----------|
-| **Enter** (SEQ NAV) | Open roll for **current voice column**; preview = full pattern with this column replaced by the roll; no undo snapshot on open. |
-| **Esc** | Validate clip → **undo snapshot** → write **only that column** from the roll → `send_pattern` → close. |
-| **?** | Full keymap overlay (same global help component). |
+- `Enter`: Open `ROL` for the selected clip.
+- `Esc`: Validate clip, apply to the parent model, re-sync preview, and close `ROL`.
+- `i`: Show the sidebar `INFO` pane.
+- `?`: Show the sidebar `HELP` pane.
 
-**Future (not v1):** explicit **Cancel** (discard roll edits, no snapshot) vs **Apply**—requires UX + binding decision.
+**Future:** explicit **Cancel** path and macro recording remain follow-up work.
 
 ---
 
-## Transport & playhead (v1 shipped / v2 polish)
+## Shared transport
 
-| Requirement | Notes |
-|-------------|--------|
-| **Single transport** | Space play/pause uses the same bridge commands as the main UI. |
-| **Playhead** | Vertical highlight (ruler + note area) at `beat_position` **wrapped** to pattern length (`grid.rows` as beats, matching one row = one beat in grid export). |
-| **Follow playhead** | **v2:** optional `Tab` or `'` to scroll viewport so playhead stays centered. |
-| **Swing** | Merged preview uses the same **`grid_to_timed_events`** path as the main SEQ player (includes project swing). |
+- `Single transport`: `Space` uses the same engine state as the rest of the app.
+- `Playhead`: The ruler/grid show the shared playhead wrapped to the clip/scene loop.
+- `Preview`: Project clips preview against the rest of the authored scene; grid clips preview against the step-grid snapshot.
+- `Re-sync`: `s` rebuilds and reloads the preview pattern.
+
+---
+
+## Sidebar story
+
+The right rail is a real sidebar now:
+
+- `INFO` shows focus stack, current `ROL` submode, active attr field, selection count, and primary-note details.
+- `HELP` shows the current `ROL` interaction map instead of a giant modal overlay.
+
+This keeps fullscreen editing readable without hiding the main canvas behind a blocker.
+
+---
+
+## Submodes
+
+`Tab` and `Shift+Tab` cycle `ROL` submodes:
+
+- `PAN`: move the viewport; plain `hjkl` / arrows pan time and pitch.
+- `JUMP`: move between note targets; plain `hjkl` / arrows jump to note neighbors.
+- `EDIT`: transform the selection; plain `hjkl` / arrows move notes in time and pitch.
+- `ATTR`: edit per-note attrs; plain `hjkl` / arrows change the active attr field or its value.
+
+The rule is simple: **plain motion does one thing per submode**.
 
 ---
 
 ## Selection model
 
-### v1 (current)
+`ROL` has a **primary note** plus a **selection set**.
 
-- **Single note** index: **f** / **b** cycle “primary” note.
-- Only primary note is visually distinct for edits that depend on selection.
+- `f / b`: Next / previous note in time order.
+- `Shift+f / Shift+b`: Extend selection while moving in time order.
+- `JUMP mode + Shift+hjkl`: Extend selection while jumping to directional note neighbors.
+- `Ctrl+a`: Select all notes.
 
-### v2 (target)
-
-| Intent | Binding (proposal) | Behavior |
-|--------|-------------------|----------|
-| **Extend selection** | **Shift+f** / **Shift+b** | Add prev/next note in time order to set (or range in list). |
-| **Select all** | **Ctrl+a** | All notes in clip. |
-| **Clear selection** | **Escape** (when not “close modal”—needs **double-Esc** or **Ctrl+Esc** story) *or* **Ctrl+Shift+a** | Deselect all except keep primary for compatibility. |
-| **Toggle note under “cursor”** | Click N/A in TUI—use **n** / **Shift+n** to move a **time cursor** across note starts and toggle membership. |
-| **Marquee** (optional) | **v3:** two-corner mark (`mark` key + move + `mark` again) to select all notes intersecting rect. |
-
-**Rule:** Any **mutation** applies to **all selected** notes unless we add a “solo primary” toggle.
+Any transform in `EDIT` or `ATTR` applies to the whole selected set unless documented otherwise.
 
 ---
 
-## Mutation verbs (v2 target)
+## Movement and jumps
 
-All deltas respect clip validation (positive length, ordering, etc.).
+### PAN
 
-| Verb | Binding (proposal) | Notes |
-|------|-------------------|--------|
-| **Nudge time** | **`[`** / **`]`** (t_off) and **`,`** / **`.`** (t_on) **× selection** | Today: primary only → v2: all selected, same delta. |
-| **Nudge pitch** | **`+`** / **`-`** (class) × selection | Same. |
-| **Nudge velocity** | **`1`** / **`2`** × selection | Same. |
-| **Nudge voice** | **`e`** / **`r`** × selection | Same. |
-| **Move selection in time** | **`H`** / **`L`** (coarse beat or grid snap) **`Shift+H/L`** fine | **v2:** move all selected by same Δt; clamp at 0. |
-| **Move selection in pitch** | **`K`** / **`J`** | **v2:** transpose all selected by same Δclass; clamp 0–127. |
-| **Duplicate** | **`d`** | Copy selected notes, offset by **1 beat** (or snap), append to clip, select duplicates. |
-| **Delete** | **`Del`** or **`x`** | Remove selected. |
-| **Quantize** | **`q`** (cycle grid: 1/16, 1/8, 1/4) | **v2:** quantize **t_on** (and optionally **t_off** length preserve). |
-| **Legato / gap** | **`;`** / **`'`** | Stretch **t_off** to next note or add gap—**v2+**. |
+- `h / l`: Pan time.
+- `j / k`: Pan pitch.
+- `Shift+hjkl`: Coarse pan.
+- `z / x`: Zoom time in / out.
+- `g`: Center on the primary note.
+- `a`: Fit all notes.
 
----
+### JUMP
 
-## Navigation (viewport)
-
-| Key | Action |
-|-----|--------|
-| **h** **l** | Pan time |
-| **k** **j** | Pan pitch (scroll classes) |
-| **z** **x** | Zoom time in/out |
-| **g** | Center on primary selection |
-| **a** | Fit all notes |
+- `h / l`: Previous / next note in time order.
+- `j / k`: Lower / higher note neighbor by pitch proximity.
+- `Shift+hjkl`: Same jumps, but extend selection.
 
 ---
 
-## Global chords while roll is open
+## Editing
 
-| Chord | Behavior |
-|-------|----------|
-| **Space** | Play/pause |
-| **s** | Re-sync preview (`LoadEvents`) |
-| **Ctrl+C/Q** | Quit app |
-| **?** | Help overlay; **Esc** closes help first |
-| **Tab** | **v2 decision:** either no-op, or “follow playhead” toggle—avoid clashing with **Tab** = cycle editor unless we nest mode stack clearly |
+### EDIT
+
+- `h / l`: Move selected notes by one snap step.
+- `j / k`: Move selected notes by scale step.
+- `Shift+h / Shift+l`: Move selected notes by one beat.
+- `Shift+j / Shift+k`: Move selected notes by one octave.
+- `Ctrl+Left / Ctrl+Right`: Snap selected notes to the previous / next note start.
+- `[ / ]`: Shorten / lengthen note duration.
+- `+ / -`: Semitone transpose.
+- `d`: Duplicate the selection one beat later.
+- `Del / Backspace`: Delete the selection.
+- `n`: Insert a new note near the primary note or viewport center.
+
+### ATTR
+
+- `h / l`: Change the active attr field.
+- `j / k`: Adjust the active attr field.
+- `Shift+j / Shift+k`: Coarse attr adjustment.
+
+Current attr fields:
+
+- `VEL`
+- `VOICE`
+- `DUR`
+
+Direct aliases stay available across submodes:
+
+- `1 / 2` velocity down / up
+- `e / r` voice down / up
 
 ---
 
-## Implementation checklist
+## Known limitations
 
-- [x] **v1:** Playhead column synced to `beat_position`, loop = pattern rows (beats).
-- [x] **v1:** One **voice column** only; apply merges that column; preview merges roll + **grid snapshot at open** (other lanes + swing).
-- [ ] **v2:** Multi-select set + apply mutations to set.
-- [ ] **v2:** Duplicate / delete selection.
-- [ ] **v2:** Quantize + optional follow playhead.
-- [ ] **Future:** Cancel without apply; marquee; mouse (terminal permitting).
-
----
-
-## Known limitations (honesty)
-
-- Grid ↔ roll **pitch** goes through **MIDI class** and “nearest scale degree” on apply—microtonal / non-12-TEDO scales are approximate.
-- **Other voice columns** in the roll preview are frozen from the grid **at open** until you close the roll (you can’t edit them without exiting).
-- **`e` / `r` “voice”** in the roll still tweak `ClipNote.voice`, but **apply** always maps notes into the opened column; output routing follows that column’s `voice_ids[ col ]`, not the edited field.
+- Grid ↔ `ROL` pitch still round-trips through MIDI class plus nearest scale-degree mapping, so microtonal / non-12-TET authored intent is still approximate on apply.
+- `VOICE` editing changes `ClipNote.voice`, but lane-based apply/preview rules still constrain how that is heard in some host paths.
+- Quantize, cancel-without-apply, marquee selection, and macro recording are still TODOs.

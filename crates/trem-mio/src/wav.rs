@@ -1,19 +1,20 @@
-//! IEEE **32-bit float** WAV export (interleaved PCM).
+//! IEEE **32-bit float** WAV helpers.
 //!
-//! Enable Cargo feature **`wav`** (`hound`). For WAV + FLAC and heavier export, see the
-//! **`export`** feature on **`trem-dsp`** ([`trem_dsp::export`]).
+//! Requires feature **`audio`** on **`trem-mio`** (default). Prefer [`crate::audio`] for planar I/O, FLAC, and streaming load.
 //!
-//! [`trem_dsp::export`]: https://docs.rs/trem-dsp/latest/trem_dsp/export/index.html
+//! These functions delegate to [`crate::audio`] to avoid duplicate encode paths.
 
 use std::fmt;
 use std::path::Path;
+
+use crate::audio::{write_planar_to_file, AudioError, AudioFormat};
+use trem::signal::SampleRateHz;
 
 /// Failure writing [`write_wav_f32`] or [`write_stereo_wav_f32`].
 #[derive(Debug)]
 pub enum WavError {
     Io(std::io::Error),
-    Encode(hound::Error),
-    /// e.g. mismatched channel lengths.
+    Encode(String),
     Invalid(String),
 }
 
@@ -21,8 +22,7 @@ impl fmt::Display for WavError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WavError::Io(e) => write!(f, "{e}"),
-            WavError::Encode(e) => write!(f, "{e}"),
-            WavError::Invalid(s) => f.write_str(s),
+            WavError::Encode(s) | WavError::Invalid(s) => f.write_str(s),
         }
     }
 }
@@ -31,8 +31,7 @@ impl std::error::Error for WavError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             WavError::Io(e) => Some(e),
-            WavError::Encode(e) => Some(e),
-            WavError::Invalid(_) => None,
+            WavError::Encode(_) | WavError::Invalid(_) => None,
         }
     }
 }
@@ -43,9 +42,12 @@ impl From<std::io::Error> for WavError {
     }
 }
 
-impl From<hound::Error> for WavError {
-    fn from(e: hound::Error) -> Self {
-        WavError::Encode(e)
+impl From<AudioError> for WavError {
+    fn from(e: AudioError) -> Self {
+        match e {
+            AudioError::Io(io) => WavError::Io(io),
+            other => WavError::Encode(other.to_string()),
+        }
     }
 }
 
@@ -61,26 +63,16 @@ fn ensure_same_len(channels: &[Vec<f32>]) -> Result<usize, WavError> {
 
 /// Writes `channels` as one interleaved float WAV (`ch0[0], ch1[0], …` per frame).
 pub fn write_wav_f32(path: &Path, channels: &[Vec<f32>], sample_rate: u32) -> Result<(), WavError> {
-    let n = ensure_same_len(channels)?;
+    let _n = ensure_same_len(channels)?;
     let n_ch = channels.len();
     if n_ch == 0 || n_ch > u16::MAX as usize {
         return Err(WavError::Invalid(format!(
             "unsupported channel count {n_ch}"
         )));
     }
-    let spec = hound::WavSpec {
-        channels: n_ch as u16,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-    let mut w = hound::WavWriter::create(path, spec)?;
-    for i in 0..n {
-        for ch in channels {
-            w.write_sample(ch[i])?;
-        }
-    }
-    w.finalize()?;
+    let rate = SampleRateHz::new(sample_rate)
+        .ok_or_else(|| WavError::Invalid("sample rate must be positive".into()))?;
+    write_planar_to_file(path, AudioFormat::Wav, rate, channels)?;
     Ok(())
 }
 
@@ -94,17 +86,6 @@ pub fn write_stereo_wav_f32(
     if left.len() != right.len() {
         return Err(WavError::Invalid("left/right length mismatch".into()));
     }
-    let spec = hound::WavSpec {
-        channels: 2,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-    let mut w = hound::WavWriter::create(path, spec)?;
-    for i in 0..left.len() {
-        w.write_sample(left[i])?;
-        w.write_sample(right[i])?;
-    }
-    w.finalize()?;
-    Ok(())
+    let channels = vec![left.to_vec(), right.to_vec()];
+    write_wav_f32(path, &channels, sample_rate)
 }

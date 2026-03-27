@@ -1,0 +1,42 @@
+{
+  "clip": {
+    "id": "lead",
+    "name": "Lead",
+    "length_beats": "16",
+    "kind": "piano_roll"
+  },
+  "notes": [
+    { "pitch": 69, "start": "0", "length": "1/2", "velocity": 96 },
+    { "pitch": 72, "start": "1/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 76, "start": "1", "length": "1/2", "velocity": 88 },
+    { "pitch": 79, "start": "3/2", "length": "1/2", "velocity": 82 },
+    { "pitch": 81, "start": "2", "length": "1/2", "velocity": 92 },
+    { "pitch": 79, "start": "5/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 76, "start": "3", "length": "1/2", "velocity": 86 },
+    { "pitch": 72, "start": "7/2", "length": "1/2", "velocity": 90 },
+    { "pitch": 65, "start": "4", "length": "1/2", "velocity": 96 },
+    { "pitch": 69, "start": "9/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 72, "start": "5", "length": "1/2", "velocity": 88 },
+    { "pitch": 76, "start": "11/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 79, "start": "6", "length": "1/2", "velocity": 92 },
+    { "pitch": 76, "start": "13/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 72, "start": "7", "length": "1/2", "velocity": 88 },
+    { "pitch": 69, "start": "15/2", "length": "1/2", "velocity": 96 },
+    { "pitch": 72, "start": "8", "length": "1/2", "velocity": 96 },
+    { "pitch": 76, "start": "17/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 79, "start": "9", "length": "1/2", "velocity": 88 },
+    { "pitch": 84, "start": "19/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 79, "start": "10", "length": "1/2", "velocity": 94 },
+    { "pitch": 76, "start": "21/2", "length": "1/2", "velocity": 86 },
+    { "pitch": 72, "start": "11", "length": "1/2", "velocity": 88 },
+    { "pitch": 79, "start": "23/2", "length": "1/2", "velocity": 96 },
+    { "pitch": 67, "start": "12", "length": "1/2", "velocity": 96 },
+    { "pitch": 71, "start": "25/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 74, "start": "13", "length": "1/2", "velocity": 88 },
+    { "pitch": 79, "start": "27/2", "length": "1/2", "velocity": 84 },
+    { "pitch": 83, "start": "14", "length": "1/2", "velocity": 92 },
+    { "pitch": 79, "start": "29/2", "length": "1/2", "velocity": 86 },
+    { "pitch": 74, "start": "15", "length": "1/2", "velocity": 88 },
+    { "pitch": 71, "start": "31/2", "length": "1/2", "velocity": 100 }
+  ]
+}

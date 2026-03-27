@@ -4,23 +4,26 @@
 
 ## Scope
 
-**trem** is a mathematical music engine in Rust. It is structured as a
-workspace of library crates plus the root binary:
+**trem** is a mathematical music engine in Rust. The repo root is a **virtual
+workspace** (`Cargo.toml` only): all crates live under **`crates/`**, including
+the **`trem-bin`** application (`cargo run` targets it via **`default-members`**).
 
-- `crates/trem/` -- Core library (no required I/O). Rational arithmetic, pitch/scale
+- `crates/trem/` -- Core library (no codec I/O). Rational arithmetic, pitch/scale
   systems, temporal trees, audio processing graphs, Euclidean rhythms, node
-  registry, and offline rendering. Optional **`rung`** / **`midi`** features: Rung clip
-  JSON (`trem::rung`) and SMF import.
+  registry, offline rendering, and typed PCM units (`trem::signal`). Optional **`rung`** / **`midi`**:
+  Rung clip JSON (`trem::rung`) and SMF import.
+- `crates/trem-mio/` -- **Media I/O** (not the Tokio **`mio`** crate): planar WAV/FLAC today
+  (`trem_mio::audio`, `trem_mio::wav`); room for images later. Feature **`audio`** (default **on**).
+  On `wasm32` without WASI use in-memory APIs (`from_bytes`, `write_planar_to_vec`, `open_memory` / `done_into_vec`).
 - `crates/trem-dsp/` -- Built-in graph nodes (`standard` module), registry
   wiring (`register_standard`, `standard_registry`), and `interfaces` re-exports
-  for custom `Node` implementations (see `docs/graph-architecture.md`). Optional
-  **`export`** feature: `trem_dsp::export` WAV (float) / FLAC (16-bit) writers.
-- `crates/trem-rta/` -- Real-time playback host (cpal + rtrb).
+  for custom `Node` implementations (see `docs/graph-architecture.md`).
+- `crates/trem-rta/` -- Real-time playback host (cpal + rtrb). Feature **`cli`**: `cli_output` (**`StereoOutputCli`**, **`AudioPlayer`**). File output uses **`trem_mio::audio`** (crate **`trem-mio`**).
 - `crates/trem-tui/` -- Terminal UI using ratatui + crossterm.
 
-The binary (`src/main.rs`) wires them together into a TUI DAW. The default patch
-and pattern live under **`src/demo/`** (`levels.rs` = mix constants, `graph.rs` =
-routing, `pattern.rs` = starter grid).
+The **`trem-bin`** package (`crates/trem-bin/`) wires libraries into the TUI DAW.
+The default patch and pattern live under **`crates/trem-bin/src/demo/`** (`levels.rs` =
+mix constants, `graph.rs` = routing, `pattern.rs` = starter grid).
 
 ## Commands
 
@@ -28,19 +31,20 @@ routing, `pattern.rs` = starter grid).
 cargo check --workspace          # type-check everything
 cargo test --workspace           # run all unit + integration tests (mirrors GitHub Actions CI)
 cargo test -p trem --features rung,midi  # Rung + MIDI import tests (also run in CI)
+cargo test -p trem-mio           # WAV/FLAC I/O tests
 cargo test --workspace --doc     # run doc-test examples
 cargo bench -p trem -- --test       # compile-check trem benchmarks
 cargo bench -p trem-dsp -- --test   # compile-check trem-dsp benchmarks
 cargo doc --workspace --no-deps  # build documentation
-cargo run                        # launch the TUI demo (default; same as `trem tui`)
+cargo run                        # launch the TUI demo (workspace default-member `crates/trem-bin`; same as `trem tui`)
+cargo run -p trem-bin            # explicit package (equivalent)
 cargo run -- rung import file.mid   # MIDI → Rung JSON (`clip` is a visible alias for `rung`)
 cargo run -- rung import tune.mid -o -   # write JSON to stdout
 cargo run -- rung edit clip.rung.json  # Rung piano-roll editor (TTY)
-cargo run -p trem --example <name>       # trem examples (euclidean, xenharmonic, graph_audio_gain, …)
-cargo run -p trem --features wav --example extreme_sidechain   # needs `wav` (hound) + dev trem-rta / trem-dsp
+cargo check -p trem-mio --examples                 # all `trem-mio` I/O examples (WAV/FLAC)
+cargo run -p trem-mio --example save_planar_wav   # planar WAV write (feature `audio` default on `trem-mio`)
 cargo run -p trem-dsp --example <name>    # graph + stock DSP examples
-cargo check -p trem-dsp --features export --example render_to_file  # compile-check WAV/FLAC export
-cargo run -p trem-dsp --example render_to_file --features export -- -o out.flac
+cargo check -p trem-rta --features cli              # `StereoOutputCli` only
 ```
 
 ## Workflow
@@ -80,11 +84,13 @@ docs (`install.md`, `graph-architecture.md`, `modes/`, …).
 
 ## Important Areas
 
-- `src/demo/` -- Default patch for the binary: `levels.rs` (mix), `graph.rs`
-  (routing), `pattern.rs` (grid). See `src/demo/README.md`.
+- `demos/` -- Placeholder for future demos (see `demos/README.md`).
+- `crates/trem-bin/src/demo/` -- Default patch for the binary: `levels.rs` (mix), `graph.rs`
+  (routing), `pattern.rs` (grid). See `crates/trem-bin/src/demo/README.md`.
 - `crates/trem/src/graph.rs` -- The core `Graph` and `Node` trait (`PrepareEnv` / `Node::prepare`, pooled input mix).
   `Graph` implements `Node`, enabling recursive nesting. See [docs/graph-architecture.md](docs/graph-architecture.md).
-  Examples: `cargo run -p trem --example graph_audio_gain`, `graph_prepare_delay`.
+  See `docs/graph-architecture.md` for prepare/block sizing behavior.
+- `crates/trem-mio/` -- Media codecs and file helpers (`audio`, `wav`); depends on **`trem`** for `signal` types only.
 - `crates/trem-dsp/src/standard/` -- Stock nodes (oscillators, filters,
   dynamics, effects, drum synths, etc.).
 - `crates/trem/src/registry.rs` -- Runtime node factory mapping tags to
@@ -99,7 +105,7 @@ docs (`install.md`, `graph-architecture.md`, `modes/`, …).
 - `docs/modes/` -- User stories and input specs for fullscreen **editing modes** (pattern roll first);
   `docs/modes/principles.md` is the shared contract for future modes.
 - `crates/trem/src/rung/` -- Rung interchange (`RungFile`, `Clip`; MIDI import behind crate features **`rung`** + **`midi`**).
-- `src/main.rs` -- Demo project: graph construction, pattern setup, TUI launch.
+- `crates/trem-bin/src/main.rs` -- CLI + demo graph/pattern + TUI launch.
 
 ## Validation
 

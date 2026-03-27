@@ -55,10 +55,10 @@ Side-by-side nodes; total inputs/outputs are the sums of children (split/merge i
 - `crates/trem/src/graph.rs` — unit tests for `chain`, `parallel`, `pipeline`, nesting.
 - `crates/trem-dsp/examples/offline_render.rs` — small graph built with stock nodes.
 - `crates/trem-dsp/examples/custom_processor.rs` — custom `Node` + stock oscillator.
-- `src/demo/graph.rs` — full demo patch (nested buses, `trem_dsp::standard`).
+- `crates/trem-bin/src/demo/graph.rs` — full demo patch (nested buses, `trem_dsp::standard`).
 
 ## See also
 
 - [AGENTS.md](../AGENTS.md) — build/test commands.
 - [README.md](../README.md) — workspace overview and nested-graph snippet.
-- **Prepare / block sizing:** [`PrepareEnv`](https://docs.rs/trem/latest/trem/graph/struct.PrepareEnv.html) and [`Node::prepare`](https://docs.rs/trem/latest/trem/graph/trait.Node.html#method.prepare) run when topology or graph buffer capacity changes (not every callback). Examples: `crates/trem/examples/graph_audio_gain.rs`, `graph_prepare_delay.rs`.
+- **Prepare / block sizing:** [`PrepareEnv`](https://docs.rs/trem/latest/trem/graph/struct.PrepareEnv.html) and [`Node::prepare`](https://docs.rs/trem/latest/trem/graph/trait.Node.html#method.prepare) run when topology or graph buffer capacity changes (not every callback). Unit tests in `crates/trem/src/graph.rs` exercise prepare and buffer sizing.

@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 //! Default **demo** content for the `trem` binary: routing graph, mix constants, and starter pattern.
 //!
 //! - [`levels`] — all channel / bus / master numeric defaults in one place.
@@ -7,6 +10,3 @@
 pub mod graph;
 pub mod levels;
 pub mod pattern;
-
-pub use graph::build_graph;
-pub use pattern::build_pattern;

@@ -14,6 +14,13 @@ pub const ACTIVE_ROW: Color = Color::Rgb(35, 55, 35);
 pub const NOTE_COLOR: Color = Color::Rgb(120, 215, 255);
 pub const SURFACE: Color = Color::Rgb(28, 28, 38);
 pub const MUTED: Color = Color::Rgb(55, 55, 70);
+pub const PANEL: Color = Color::Rgb(22, 22, 30);
+pub const PANEL_ALT: Color = Color::Rgb(34, 34, 48);
+pub const PLAYHEAD: Color = Color::Rgb(58, 52, 84);
+pub const GRID_ROOT: Color = Color::Rgb(30, 30, 40);
+pub const GRID_SCALE: Color = Color::Rgb(22, 24, 32);
+pub const SELECTED_BG: Color = Color::Rgb(34, 48, 62);
+pub const PRIMARY_BG: Color = Color::Rgb(64, 56, 38);
 pub const GREEN: Color = Color::Rgb(80, 200, 120);
 pub const YELLOW: Color = Color::Rgb(230, 200, 80);
 
@@ -45,7 +52,7 @@ pub fn cell_cursor() -> Style {
 
 /// Transport strip background/text.
 pub fn transport() -> Style {
-    Style::new().fg(FG).bg(SURFACE)
+    shell_base()
 }
 
 /// Widget borders and dividers.
@@ -66,6 +73,50 @@ pub fn value() -> Style {
 /// Panel titles (accent, bold).
 pub fn title() -> Style {
     Style::new().fg(ACCENT).bg(BG).add_modifier(Modifier::BOLD)
+}
+
+/// Shared shell strip background/text.
+pub fn shell_base() -> Style {
+    Style::new().fg(FG).bg(SURFACE)
+}
+
+/// Shared shell separators.
+pub fn shell_sep() -> Style {
+    Style::new().fg(MUTED).bg(SURFACE)
+}
+
+/// Shared shell dimmed copy.
+pub fn shell_dim() -> Style {
+    Style::new().fg(DIM).bg(SURFACE)
+}
+
+/// Shared shell accent badge.
+pub fn shell_badge() -> Style {
+    Style::new()
+        .fg(ACCENT)
+        .bg(SURFACE)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Shared shell action key style.
+pub fn shell_key() -> Style {
+    Style::new()
+        .fg(YELLOW)
+        .bg(SURFACE)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Shared warning / escape highlight.
+pub fn warning() -> Style {
+    Style::new()
+        .fg(YELLOW)
+        .bg(SURFACE)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Panel background for sidebars and overlays.
+pub fn panel() -> Style {
+    Style::new().fg(FG).bg(PANEL)
 }
 
 /// Map note velocity (0.0–1.0) to a color gradient.

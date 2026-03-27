@@ -1,0 +1,97 @@
+{
+  "graph": {
+    "id": "main_mix",
+    "name": "Main Mix"
+  },
+  "nodes": [
+    {
+      "id": "inst",
+      "label": "Inst Bus",
+      "type": "input",
+      "port": "inst_bus"
+    },
+    {
+      "id": "drums",
+      "label": "Drum Bus",
+      "type": "input",
+      "port": "drum_bus"
+    },
+    {
+      "id": "sum",
+      "label": "Mixer",
+      "type": "standard",
+      "tag": "mix",
+      "inputs": ["inst", "drums"],
+      "params": {
+        "channels": 2.0
+      }
+    },
+    {
+      "id": "eq",
+      "label": "EQ",
+      "type": "standard",
+      "tag": "peq",
+      "inputs": ["sum"],
+      "params": {
+        "high_db": 1.5,
+        "low_db": -1.5,
+        "mid_db": 3.0
+      }
+    },
+    {
+      "id": "glue",
+      "label": "Glue Compressor",
+      "type": "standard",
+      "tag": "com",
+      "inputs": ["eq"],
+      "params": {
+        "attack_ms": 8.0,
+        "ratio": 3.0,
+        "release_ms": 120.0,
+        "threshold_db": -18.0
+      }
+    },
+    {
+      "id": "space",
+      "label": "Stereo Delay",
+      "type": "standard",
+      "tag": "dly",
+      "inputs": ["glue"],
+      "params": {
+        "delay_ms": 260.0,
+        "feedback": 0.16,
+        "mix": 0.035
+      }
+    },
+    {
+      "id": "air",
+      "label": "Plate Reverb",
+      "type": "standard",
+      "tag": "vrb",
+      "inputs": ["space"],
+      "params": {
+        "damp": 0.62,
+        "mix": 0.045,
+        "size": 0.32
+      }
+    },
+    {
+      "id": "limit",
+      "label": "Limiter",
+      "type": "standard",
+      "tag": "lim",
+      "inputs": ["air"],
+      "params": {
+        "ceiling_db": -0.3,
+        "release_ms": 100.0
+      }
+    },
+    {
+      "id": "out",
+      "label": "Main Out",
+      "type": "output",
+      "port": "main_out",
+      "inputs": ["limit"]
+    }
+  ]
+}

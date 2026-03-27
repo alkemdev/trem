@@ -9,7 +9,7 @@ workflow — see **[flow/README.md](../flow/README.md)**.
 TUI editors (piano-roll, samples, arrange, …).
 
 **Editing modes (specs):** [modes/README.md](./modes/README.md) — user stories, input targets,
-and shared principles for fullscreen / deep editors (pattern roll first).
+shared principles, and the `Zone / Mode / Tool` control language for fullscreen / deep editors.
 
 **Install & run:** [install.md](./install.md) — Rust, clone, `cargo run`, Linux/macOS/Windows/WSL.
 

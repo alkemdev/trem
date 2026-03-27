@@ -4,7 +4,8 @@ These apply to **pattern roll**, future **sample editor**, **arrange**, **GRAPH*
 
 ## 1. One clear context
 
-- The user always knows **which mode** they are in (title, layout, footer hints).
+- The user always knows the active **Zone / Mode / Tool** (title, layout, footer hints).
+- Normal operation uses a shared shell: top bar, right sidebar, and bottom bar.
 - **Global** chords (Tab, `?`, Space, Ctrl+S, …) behave predictably or are explicitly **disabled** with a message when dangerous.
 
 ## 2. Transport is shared
@@ -34,7 +35,8 @@ These apply to **pattern roll**, future **sample editor**, **arrange**, **GRAPH*
 ## 6. Discoverability
 
 - A **one-line footer** lists the **most important** actions; **`?`** shows the full map.
-- **Sidebar** may stay hidden in fullscreen modes; the mode itself must carry help.
+- **`Shift+Enter`** toggles a canvas-first fullscreen state for the current view.
+- **Sidebar** may stay hidden in fullscreen modes; the mode itself must carry a minimal HUD and keep help reachable.
 
 ## 7. Host and preview honesty
 

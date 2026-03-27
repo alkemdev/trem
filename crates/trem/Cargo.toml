@@ -11,18 +11,16 @@ keywords = ["audio", "music", "dsp", "xenharmonic", "sequencer"]
 categories = ["multimedia::audio"]
 
 [package.metadata.docs.rs]
-features = ["serde", "rung", "midi", "wav"]
+features = ["serde", "rung", "midi"]
 
 [features]
 default = []
 serde = ["dep:serde", "num-rational/serde"]
 rung = ["serde", "dep:serde_json", "dep:thiserror"]
 midi = ["rung", "dep:midly"]
-wav = ["dep:hound"]
 
 [dependencies]
 bitflags = "2"
-hound = { version = "3.5.1", optional = true }
 midly = { version = "0.5", optional = true }
 num-integer = "0.1.46"
 num-rational = "0.4.2"
@@ -32,14 +30,9 @@ serde_json = { version = "1", optional = true }
 thiserror = { version = "2", optional = true }
 
 [dev-dependencies]
-clap = { workspace = true }
 divan = "0.1.21"
 trem-dsp = { workspace = true }
 trem-rta = { workspace = true }
-
-[[example]]
-name = "extreme_sidechain"
-required-features = ["wav"]
 
 [[bench]]
 name = "core"

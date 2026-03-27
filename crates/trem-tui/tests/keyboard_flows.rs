@@ -7,9 +7,9 @@
 //!
 //! | Flow | What we assert |
 //! |------|----------------|
-//! | Global | Tab, Space, `?`, arrows, `+-` BPM, `[]` oct, `` ` `` pane, `{}` swing, Shift+arrows fine |
+//! | Global | Tab, Space, `?`, arrows, `+-` BPM, `[]` oct, `` ` `` pane, `{}` swing, Shift+Enter fullscreen, Shift+arrows fine |
 //! | Global Ctrl | C/Q quit, S save, O load, Z undo, Y redo |
-//! | Help | Only Esc / `?` close; Space swallowed |
+//! | Help pane | Esc / `?` hide help; normal actions still route |
 //! | Sequencer NAV | e grid edit, Enter piano roll, hjkl move, q quit, u undo |
 //! | Sequencer EDIT | Esc nav, z note, a gate, Del clear |
 //! | SEQ NAV | Enter opens roll; e edit; Esc or Enter back to nav from edit |
@@ -132,6 +132,16 @@ fn global_shift_arrows_param_fine() {
 }
 
 #[test]
+fn global_shift_enter_toggles_fullscreen() {
+    let mode = Mode::Normal;
+    let c = ctx(Editor::Graph, &mode, false, false);
+    assert_eq!(
+        handle_key(press(KeyCode::Enter, KeyModifiers::SHIFT), &c),
+        Some(Action::ToggleFullscreen)
+    );
+}
+
+#[test]
 fn global_ctrl_chords_project_and_history() {
     let mode = Mode::Normal;
     let c = ctx(Editor::Pattern, &mode, false, false);
@@ -170,16 +180,20 @@ fn ctrl_shift_u_redo() {
 // --- Help overlay ---
 
 #[test]
-fn help_swallows_space_and_tab() {
+fn help_pane_keeps_global_actions_live() {
     let mode = Mode::Normal;
     let c = ctx(Editor::Pattern, &mode, false, true);
     assert_eq!(
         handle_key(press(KeyCode::Char(' '), KeyModifiers::NONE), &c),
-        None
+        Some(Action::TogglePlay)
     );
     assert_eq!(
         handle_key(press(KeyCode::Tab, KeyModifiers::NONE), &c),
-        None
+        Some(Action::CycleEditor)
+    );
+    assert_eq!(
+        handle_key(press(KeyCode::Enter, KeyModifiers::SHIFT), &c),
+        Some(Action::ToggleFullscreen)
     );
 }
 
@@ -194,6 +208,16 @@ fn help_esc_and_question_close() {
     assert_eq!(
         handle_key(press(KeyCode::Char('?'), KeyModifiers::NONE), &c),
         Some(Action::ToggleHelp)
+    );
+}
+
+#[test]
+fn global_i_shows_info_pane() {
+    let mode = Mode::Normal;
+    let c = ctx(Editor::Graph, &mode, false, false);
+    assert_eq!(
+        handle_key(press(KeyCode::Char('i'), KeyModifiers::NONE), &c),
+        Some(Action::ShowInfoPane)
     );
 }
 

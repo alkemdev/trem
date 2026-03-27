@@ -1,0 +1,24 @@
+[package]
+name = "trem-bin"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "trem — terminal synth, graph editor, and Rung clip CLI"
+repository = "https://github.com/alkemdev/trem"
+readme = "../../README.md"
+documentation = "https://docs.rs/trem-bin"
+
+[[bin]]
+name = "trem"
+path = "src/main.rs"
+
+[dependencies]
+trem = { workspace = true, features = ["rung", "midi"] }
+trem-dsp = { workspace = true }
+trem-rta = { workspace = true, features = ["cli"] }
+trem-tui = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+num-rational = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }

@@ -10,8 +10,16 @@ documentation = "https://docs.rs/trem-rta"
 keywords = ["audio", "cpal", "realtime"]
 categories = ["multimedia::audio"]
 
+[package.metadata.docs.rs]
+features = ["cli"]
+
+[features]
+default = []
+cli = ["dep:clap"]
+
 [dependencies]
 trem = { workspace = true }
 cpal = { workspace = true }
 rtrb = { workspace = true }
 anyhow = { workspace = true }
+clap = { workspace = true, optional = true, features = ["derive"] }

@@ -22,6 +22,8 @@ jobs:
 
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -29,11 +31,10 @@ jobs:
       - name: cargo test --workspace
         run: cargo test --workspace
 
-      - name: cargo check trem-dsp export example
-        run: cargo check -p trem-dsp --features export --example render_to_file
-
-      - name: cargo check trem extreme_sidechain (wav + preview)
-        run: cargo check -p trem --features wav --example extreme_sidechain
+      - name: cargo check trem-mio examples + wasm target
+        run: |
+          cargo check -p trem-mio --examples
+          cargo check -p trem-mio --target wasm32-unknown-unknown
 
       - name: cargo test -p trem --features rung,midi
         run: cargo test -p trem --features rung,midi

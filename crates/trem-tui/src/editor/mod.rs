@@ -5,4 +5,4 @@
 //! ## Future editors
 //!
 //! See repository **`docs/tui-editor-roadmap.md`**: piano-roll, sample editor, arrange
-//! timeline, mixer, etc., and how to extend `Editor` + input + draw + help + sidebar.
+//! timeline, mixer, etc., and how to extend `Editor` + input + draw + overlays.

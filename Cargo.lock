@@ -260,6 +260,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "claxon"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bfbf56724aa9eca8afa4fcfadeb479e722935bb2a0900c2d37e0cc477af0688"
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1851,6 +1857,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "876ac351060d4f882bb1032b6369eb0aef79ad9df1ea8bc404874d8cc3d0cd98"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2126,10 +2141,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
-name = "toml_datetime"
-version = "1.0.1+spec-1.1.0"
+name = "toml"
+version = "1.1.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b320e741db58cac564e26c607d3cc1fdc4a88fd36c879568c07856ed83ff3e9"
+checksum = "f8195ca05e4eb728f4ba94f3e3291661320af739c4e43779cbdfae82ab239fcc"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "1.1.0+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97251a7c317e03ad83774a8752a7e81fb6067740609f75ea2b585b569a59198f"
 dependencies = [
  "serde_core",
 ]
@@ -2148,12 +2178,18 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.0.10+spec-1.1.0"
+version = "1.1.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7df25b4befd31c4816df190124375d5a20c6b6921e2cad937316de3fccd63420"
+checksum = "2334f11ee363607eb04df9b8fc8a13ca1715a72ba8662a26ac285c98aabb4011"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.0+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d282ade6016312faf3e41e57ebbba0c073e4056dab1232ab1cb624199648f8ed"
 
 [[package]]
 name = "transpose"
@@ -2170,9 +2206,7 @@ name = "trem"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.11.0",
- "clap",
  "divan",
- "hound",
  "midly",
  "num-integer",
  "num-rational",
@@ -2205,9 +2239,27 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "divan",
+ "trem",
+]
+
+[[package]]
+name = "trem-mio"
+version = "0.1.0"
+dependencies = [
+ "claxon",
  "flacenc",
  "hound",
  "trem",
+]
+
+[[package]]
+name = "trem-project"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]
@@ -2215,6 +2267,7 @@ name = "trem-rta"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "cpal",
  "rtrb",
  "trem",
@@ -2233,7 +2286,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "toml",
  "trem",
+ "trem-project",
  "trem-rta",
 ]
 

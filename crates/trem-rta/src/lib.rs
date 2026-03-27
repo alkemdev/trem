@@ -7,11 +7,18 @@
 //! buffer. The UI sends [`Command`]s (play, pause, stop, set parameter, load events),
 //! and the audio callback sends back [`Notification`]s (beat position, peak meters).
 //!
-//! [`preview`] plays pre-rendered stereo buffers once (no graph) — useful for small examples.
+//! [`preview`] plays pre-rendered stereo buffers once (no graph): [`AudioPlayer`](preview::AudioPlayer)
+//! (typical: `AudioPlayer::new(sr).play(&audio)`), or free functions.
+//!
+//! Feature **`cli`**: module **`cli_output`** — **`-o` / `--no-play`** ([`StereoOutputCli`](cli_output::StereoOutputCli)).
+//! File output from apps uses **`trem_mio::audio`** (crate **`trem-mio`**, feature **`audio`** default on).
 
 pub mod bridge;
 pub mod driver;
 pub mod preview;
+
+#[cfg(feature = "cli")]
+pub mod cli_output;
 
 pub use bridge::{
     create_bridge, AudioBridge, Bridge, Command, Notification, ScopeFocus, ScopeSnapshot,

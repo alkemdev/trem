@@ -1,0 +1,26 @@
+{
+  "clip": {
+    "id": "kick",
+    "name": "Kick",
+    "length_beats": "16",
+    "kind": "drum_pattern"
+  },
+  "notes": [
+    { "pitch": 36, "start": "0", "length": "1/8", "velocity": 120 },
+    { "pitch": 36, "start": "1", "length": "1/8", "velocity": 108 },
+    { "pitch": 36, "start": "2", "length": "1/8", "velocity": 116 },
+    { "pitch": 36, "start": "3", "length": "1/8", "velocity": 108 },
+    { "pitch": 36, "start": "4", "length": "1/8", "velocity": 120 },
+    { "pitch": 36, "start": "11/2", "length": "1/8", "velocity": 94 },
+    { "pitch": 36, "start": "6", "length": "1/8", "velocity": 114 },
+    { "pitch": 36, "start": "7", "length": "1/8", "velocity": 108 },
+    { "pitch": 36, "start": "8", "length": "1/8", "velocity": 122 },
+    { "pitch": 36, "start": "9", "length": "1/8", "velocity": 108 },
+    { "pitch": 36, "start": "10", "length": "1/8", "velocity": 116 },
+    { "pitch": 36, "start": "11", "length": "1/8", "velocity": 108 },
+    { "pitch": 36, "start": "12", "length": "1/8", "velocity": 120 },
+    { "pitch": 36, "start": "27/2", "length": "1/8", "velocity": 96 },
+    { "pitch": 36, "start": "14", "length": "1/8", "velocity": 118 },
+    { "pitch": 36, "start": "15", "length": "1/8", "velocity": 110 }
+  ]
+}

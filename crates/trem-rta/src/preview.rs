@@ -1,4 +1,8 @@
 //! Play pre-rendered **f32** PCM once on the default output device (no graph).
+//!
+//! Realtime [`trem::graph::Graph`] output uses [`crate::AudioEngine`] and a [`crate::Bridge`].
+//! One-shot offline buffers: [`AudioPlayer`] (`.play(&render_output)`) or the free functions
+//! [`play_stereo_f32`] / [`play_render_stereo`].
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -123,4 +127,58 @@ pub fn play_stereo_f32(left: &[f32], right: &[f32], source_sample_rate: f64) -> 
         interleaved = map_stereo_to_device_channels(&interleaved, device_ch);
     }
     play_interleaved_blocking(interleaved, &stream_cfg)
+}
+
+/// Reusable one-shot speaker output for **offline-rendered** stereo **f32** (blocking until done).
+///
+/// Use the same sample rate as [`trem::render::render`], then [`.play`](AudioPlayer::play)`(&audio)`.
+/// For realtime [`trem::graph::Graph`] playback, use [`crate::AudioEngine`] instead.
+///
+/// # Examples
+///
+/// ```no_run
+/// use trem_rta::preview::AudioPlayer;
+///
+/// fn after_render(audio: &[Vec<f32>], sample_rate: f64) -> anyhow::Result<()> {
+///     AudioPlayer::new(sample_rate).play(audio)?;
+///     Ok(())
+/// }
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AudioPlayer {
+    sample_rate: f64,
+}
+
+impl AudioPlayer {
+    /// Sample rate of the buffers you pass to [`.play`] / [`.play_stereo`] (your render rate).
+    pub fn new(sample_rate: f64) -> Self {
+        Self { sample_rate }
+    }
+
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
+    }
+
+    /// Stereo buffers from [`trem::render::render`] with `output_ports` `&[0, 1]`.
+    pub fn play(&self, stereo: &[Vec<f32>]) -> anyhow::Result<()> {
+        if stereo.len() != 2 {
+            anyhow::bail!("expected 2 channels (stereo), got {}", stereo.len());
+        }
+        if stereo[0].len() != stereo[1].len() {
+            anyhow::bail!("left/right length mismatch");
+        }
+        play_stereo_f32(&stereo[0], &stereo[1], self.sample_rate)
+    }
+
+    /// Left / right at [`.sample_rate`].
+    pub fn play_stereo(&self, left: &[f32], right: &[f32]) -> anyhow::Result<()> {
+        play_stereo_f32(left, right, self.sample_rate)
+    }
+}
+
+/// Plays the stereo buffers returned by [`trem::render::render`] when `output_ports` is `&[0, 1]`.
+///
+/// Shorthand for `AudioPlayer::new(sample_rate).play(channels)`.
+pub fn play_render_stereo(channels: &[Vec<f32>], sample_rate: f64) -> anyhow::Result<()> {
+    AudioPlayer::new(sample_rate).play(channels)
 }
