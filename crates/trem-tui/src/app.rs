@@ -27,7 +27,8 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
@@ -52,6 +53,22 @@ fn cycle_gate(current: Rational) -> Rational {
         }
     }
     Rational::new(1, 4)
+}
+
+#[inline]
+fn now_seconds() -> f64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::time::UNIX_EPOCH;
+        std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() * 0.001
+    }
 }
 
 /// Mutable state for the full terminal UI: pattern/graph views, audio bridge, and layout data.
@@ -81,7 +98,7 @@ pub struct App {
     /// This-process CPU / RSS refreshed ~2× per second for the info panel.
     pub host_stats: HostStatsSnapshot,
     sys: System,
-    host_stats_last_refresh: Instant,
+    host_stats_last_refresh: f64,
     /// Peak-decay time constant for spectrum bars (ms); lower = snappier, higher = longer “tail”.
     pub spectrum_fall_ms: f64,
     spectrum_analyzer_in: SpectrumAnalyzerState,
@@ -106,7 +123,7 @@ pub struct App {
     pub undo_stack: Vec<Vec<Option<NoteEvent>>>,
     pub redo_stack: Vec<Vec<Option<NoteEvent>>>,
     rng_state: u64,
-    preview_note_off: Option<(u32, Instant)>,
+    preview_note_off: Option<(u32, f64)>,
     pub bottom_pane: BottomPane,
     /// Path into nested graphs for the graph editor (empty = root).
     pub graph_path: Vec<u32>,
@@ -168,9 +185,7 @@ impl App {
             scope_graph_in: Vec::new(),
             host_stats: HostStatsSnapshot::default(),
             sys: System::new(),
-            host_stats_last_refresh: Instant::now()
-                .checked_sub(Duration::from_secs(1))
-                .unwrap_or_else(Instant::now),
+            host_stats_last_refresh: now_seconds() - 1.0,
             spectrum_fall_ms: 18.0,
             spectrum_analyzer_in: SpectrumAnalyzerState::new(18.0),
             spectrum_analyzer_out: SpectrumAnalyzerState::new(18.0),
@@ -295,10 +310,21 @@ impl App {
     }
 
     fn refresh_host_stats(&mut self) {
-        if self.host_stats_last_refresh.elapsed() < Duration::from_millis(520) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Browser/wasm has no process id API; keep perf panel stable.
+            self.host_stats.process_cpu_pct = 0.0;
+            self.host_stats.process_rss_mb = 0;
             return;
         }
-        self.host_stats_last_refresh = Instant::now();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+        let now = now_seconds();
+        if (now - self.host_stats_last_refresh) < 0.520 {
+            return;
+        }
+        self.host_stats_last_refresh = now;
         self.sys.refresh_cpu_usage();
         let pid = Pid::from_u32(std::process::id());
         self.sys
@@ -317,6 +343,7 @@ impl App {
         } else {
             self.host_stats.process_cpu_pct = 0.0;
             self.host_stats.process_rss_mb = 0;
+        }
         }
     }
 
@@ -546,7 +573,7 @@ impl App {
                     velocity: vel,
                     voice: voice_id,
                 });
-                self.preview_note_off = Some((voice_id, Instant::now()));
+                self.preview_note_off = Some((voice_id, now_seconds()));
 
                 self.grid.set(self.cursor_row, self.cursor_col, Some(event));
 
@@ -792,7 +819,7 @@ impl App {
             velocity: 0.6,
             voice,
         });
-        self.preview_note_off = Some((voice, Instant::now()));
+        self.preview_note_off = Some((voice, now_seconds()));
     }
 
     fn next_rng(&mut self) -> u64 {
@@ -952,8 +979,8 @@ impl App {
     /// Drains pending [`Notification`]s and timed preview note-off; call each frame from the UI loop.
     pub fn poll_audio(&mut self) {
         // Handle preview note release
-        if let Some((voice, time)) = self.preview_note_off {
-            if time.elapsed() > Duration::from_millis(120) {
+        if let Some((voice, at)) = self.preview_note_off {
+            if (now_seconds() - at) > 0.120 {
                 self.bridge.send(Command::NoteOff { voice });
                 self.preview_note_off = None;
             }
@@ -1177,7 +1204,7 @@ impl App {
             }
         }
 
-        let now = Instant::now();
+        let now = now_seconds();
         self.spectrum_analyzer_in.fall_ms = self.spectrum_fall_ms;
         self.spectrum_analyzer_out.fall_ms = self.spectrum_fall_ms;
         let (spec_in, nr_in) = self.spectrum_analyzer_in.analyze(&self.scope_graph_in, now);

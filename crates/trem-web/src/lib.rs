@@ -62,14 +62,13 @@ fn map_web_key(key: WebKeyEvent) -> AppKeyEvent {
 fn start_audio_if_needed(
     pending_audio: &Rc<RefCell<Option<PendingAudio>>>,
     audio_engine: &Rc<RefCell<Option<trem_cpal::AudioEngine>>>,
-    app: &Rc<RefCell<trem_tui::App>>,
-) {
+    ) -> bool {
     if audio_engine.borrow().is_some() {
-        return;
+        return false;
     }
 
     let Some(pending) = pending_audio.borrow_mut().take() else {
-        return;
+        return false;
     };
 
     match trem_cpal::AudioEngine::new(
@@ -81,14 +80,13 @@ fn start_audio_if_needed(
     ) {
         Ok(engine) => {
             *audio_engine.borrow_mut() = Some(engine);
-            let mut app = app.borrow_mut();
-            let bpm = app.bpm;
-            app.bridge.send(Command::SetBpm(bpm));
+            true
         }
         Err(err) => {
             warn(&format!(
                 "trem-web: audio init failed, continuing without audio: {err}"
             ));
+            false
         }
     }
 }
@@ -305,16 +303,19 @@ pub fn start_trem_web(container_id: &str) -> Result<(), JsValue> {
         let pending_audio = pending_audio.clone();
         let audio_engine = audio_engine.clone();
         move |key| {
-            start_audio_if_needed(&pending_audio, &audio_engine, &app);
+            let started = start_audio_if_needed(&pending_audio, &audio_engine);
+            if started {
+                if let Ok(mut app) = app.try_borrow_mut() {
+                    let bpm = app.bpm;
+                    app.bridge.send(Command::SetBpm(bpm));
+                }
+            }
             let key = map_web_key(key);
             let (editor, mode, graph_is_nested, help_open) = {
-                let app = app.borrow();
-                (
-                    app.editor,
-                    app.mode,
-                    !app.graph_path.is_empty(),
-                    app.help_open,
-                )
+                let Ok(app) = app.try_borrow() else {
+                    return;
+                };
+                (app.editor, app.mode, !app.graph_path.is_empty(), app.help_open)
             };
             let ctx = InputContext {
                 editor,
@@ -323,7 +324,9 @@ pub fn start_trem_web(container_id: &str) -> Result<(), JsValue> {
                 help_open,
             };
             if let Some(action) = trem_tui::input::handle_key_event(key, &ctx) {
-                app.borrow_mut().handle_action(action);
+                if let Ok(mut app) = app.try_borrow_mut() {
+                    app.handle_action(action);
+                }
             }
         }
     });
@@ -334,16 +337,22 @@ pub fn start_trem_web(container_id: &str) -> Result<(), JsValue> {
         let audio_engine = audio_engine.clone();
         move |mouse| {
             if mouse.event == WebMouseEventKind::Pressed {
-                start_audio_if_needed(&pending_audio, &audio_engine, &app);
+                if start_audio_if_needed(&pending_audio, &audio_engine) {
+                    if let Ok(mut app) = app.try_borrow_mut() {
+                        let bpm = app.bpm;
+                        app.bridge.send(Command::SetBpm(bpm));
+                    }
+                }
             }
         }
     });
 
     terminal.draw_web(move |frame| {
         let _keep_engine_alive = &audio_engine;
-        let mut app = app.borrow_mut();
-        app.poll_audio();
-        app.draw(frame);
+        if let Ok(mut app) = app.try_borrow_mut() {
+            app.poll_audio();
+            app.draw(frame);
+        }
     });
 
     Ok(())
