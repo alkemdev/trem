@@ -222,9 +222,7 @@ pub fn handle_key_event(key: AppKeyEvent, ctx: &InputContext<'_>) -> Option<Acti
         AppKeyCode::Char('`') => return Some(Action::CycleBottomPane),
         AppKeyCode::Esc if *ctx.mode == Mode::Edit => return Some(Action::ToggleEdit),
         AppKeyCode::Esc
-            if *ctx.mode == Mode::Normal
-                && ctx.editor == Editor::Graph
-                && ctx.graph_is_nested =>
+            if *ctx.mode == Mode::Normal && ctx.editor == Editor::Graph && ctx.graph_is_nested =>
         {
             return Some(Action::ExitGraph);
         }

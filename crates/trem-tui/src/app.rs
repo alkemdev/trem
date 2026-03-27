@@ -2,9 +2,9 @@
 //!
 //! [`App::run`] is the event loop (draw, input, non-blocking audio poll).
 
-use crate::input::{Action, BottomPane, Editor, Mode};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::input::{self, InputContext};
+use crate::input::{Action, BottomPane, Editor, Mode};
 use crate::project::ProjectData;
 use crate::view::graph::GraphViewWidget;
 use crate::view::help::HelpOverlay;
@@ -320,30 +320,30 @@ impl App {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-        let now = now_seconds();
-        if (now - self.host_stats_last_refresh) < 0.520 {
-            return;
-        }
-        self.host_stats_last_refresh = now;
-        self.sys.refresh_cpu_usage();
-        let pid = Pid::from_u32(std::process::id());
-        self.sys
-            .refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
-        if let Some(p) = self.sys.process(pid) {
-            // Smoothed: raw `cpu_usage` is per refresh window and can spike (UI redraw + audio).
-            let raw = p.cpu_usage();
-            let prev = self.host_stats.process_cpu_pct;
-            const SMOOTH: f32 = 0.22;
-            self.host_stats.process_cpu_pct = if prev <= f32::EPSILON {
-                raw
+            let now = now_seconds();
+            if (now - self.host_stats_last_refresh) < 0.520 {
+                return;
+            }
+            self.host_stats_last_refresh = now;
+            self.sys.refresh_cpu_usage();
+            let pid = Pid::from_u32(std::process::id());
+            self.sys
+                .refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
+            if let Some(p) = self.sys.process(pid) {
+                // Smoothed: raw `cpu_usage` is per refresh window and can spike (UI redraw + audio).
+                let raw = p.cpu_usage();
+                let prev = self.host_stats.process_cpu_pct;
+                const SMOOTH: f32 = 0.22;
+                self.host_stats.process_cpu_pct = if prev <= f32::EPSILON {
+                    raw
+                } else {
+                    prev * (1.0 - SMOOTH) + raw * SMOOTH
+                };
+                self.host_stats.process_rss_mb = p.memory() / 1024 / 1024;
             } else {
-                prev * (1.0 - SMOOTH) + raw * SMOOTH
-            };
-            self.host_stats.process_rss_mb = p.memory() / 1024 / 1024;
-        } else {
-            self.host_stats.process_cpu_pct = 0.0;
-            self.host_stats.process_rss_mb = 0;
-        }
+                self.host_stats.process_cpu_pct = 0.0;
+                self.host_stats.process_rss_mb = 0;
+            }
         }
     }
 

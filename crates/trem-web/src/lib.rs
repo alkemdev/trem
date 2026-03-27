@@ -62,7 +62,7 @@ fn map_web_key(key: WebKeyEvent) -> AppKeyEvent {
 fn start_audio_if_needed(
     pending_audio: &Rc<RefCell<Option<PendingAudio>>>,
     audio_engine: &Rc<RefCell<Option<trem_cpal::AudioEngine>>>,
-    ) -> bool {
+) -> bool {
     if audio_engine.borrow().is_some() {
         return false;
     }
@@ -315,7 +315,12 @@ pub fn start_trem_web(container_id: &str) -> Result<(), JsValue> {
                 let Ok(app) = app.try_borrow() else {
                     return;
                 };
-                (app.editor, app.mode, !app.graph_path.is_empty(), app.help_open)
+                (
+                    app.editor,
+                    app.mode,
+                    !app.graph_path.is_empty(),
+                    app.help_open,
+                )
             };
             let ctx = InputContext {
                 editor,
